@@ -5,7 +5,7 @@ Juego de gestión urbana isométrico hecho con HTML5 (Canvas 2D y WebGL2) y Java
 
 ## Cómo jugar
 
-- Abre `IsoCity-standalone.html` (un solo archivo) o `index.html` en cualquier navegador moderno. No necesita instalación.
+- Abre `index.html` en cualquier navegador moderno. No necesita instalación. (Con `node build.js` se genera `IsoCity-standalone.html`, el juego completo en un solo archivo.)
 - Opcional: `node serve.js` y abre http://localhost:5600
 
 ## Móvil y tablet
@@ -15,16 +15,16 @@ La interfaz se adapta sola a pantallas pequeñas (vertical y horizontal) y funci
 - **Un dedo**: usa la herramienta elegida (con ✋ mueve el mapa). Al construir, el punto de acción se sitúa por encima del dedo para que se vea; los edificios se colocan **al soltar** y soltar sobre la barra inferior **cancela**.
 - **Dos dedos**: pellizco para el zoom y arrastre para mover el mapa.
 - Botones laterales para rotar, zoom y abrir el minimapa con las vistas de datos; la velocidad se cambia con un solo botón; Presupuesto, Estadísticas, etc. están en el menú ☰.
-- Para jugar en el teléfono: `node serve.js` en el PC y abre en el móvil (misma Wi-Fi) la dirección que muestra la consola, o copia `IsoCity-standalone.html` al dispositivo. En Opciones hay modo pantalla completa.
+- Para jugar en el teléfono: `node serve.js` en el PC y abre en el móvil (misma Wi-Fi) la dirección que muestra la consola, o copia al dispositivo el `IsoCity-standalone.html` generado con `node build.js`. En Opciones hay modo pantalla completa.
 - **Rendimiento:** el juego se dibuja con **WebGL2** (atlas de sprites, prueba de profundidad y MSAA) y, si no está disponible, con Canvas 2D; se puede cambiar en Opciones → *Motor de dibujo*. También hay *Calidad gráfica* (Alta / Media / Baja), *Límite de fps* y un visor de FPS con detalles de diagnóstico. En móviles la calidad se elige sola y, si no se sostienen los fps, se baja la resolución de los sprites automáticamente.
 
 ## APK de Android
 
 Hay un proyecto Android nativo mínimo en `android/` (un `WebView` a pantalla completa que carga el juego desde los assets; funciona sin internet y las partidas se guardan en el propio dispositivo).
 
-- APK ya compilado: `IsoCity-<versión>.apk` (p. ej. `IsoCity-1.2.1.apk`, firmado con `android/isocity-release.keystore`). Cópialo al teléfono, ábrelo y permite "instalar apps desconocidas" para tu gestor de archivos/navegador. O con el móvil por USB: `adb install -r IsoCity-<versión>.apk`.
+- APK ya compilado: descárgalo en [Releases](https://github.com/ArisDDev/isocity/releases) (`IsoCity-<versión>.apk`). Cópialo al teléfono, ábrelo y permite "instalar apps desconocidas" para tu gestor de archivos/navegador. O con el móvil por USB: `adb install -r IsoCity-<versión>.apk`.
 - Recompilar tras editar el juego (requiere JDK 17 y Android SDK 35): desde `android/` ejecuta `gradlew.bat assembleRelease`; el APK queda en `android/app/build/outputs/apk/release/IsoCity-<versión>.apk` y se copia también a la carpeta raíz del proyecto con ese nombre. La versión sale de `versionName` en `android/app/build.gradle`. Los archivos web se copian solos a los assets.
-- **Guarda una copia de `android/isocity-release.keystore` y `android/keystore.properties`**: sin ellos no podrás publicar actualizaciones que se instalen sobre la versión anterior.
+- Para firmar con tu propia clave crea `android/keystore.properties` (`storeFile`, `storePassword`, `keyAlias`, `keyPassword`); sin ese archivo se firma con la clave de depuración. La clave de firma no forma parte del repositorio.
 - Botón Atrás: cierra ventanas/herramientas y, si no hay nada, sale. La partida se autoguarda al pasar a segundo plano.
 - Los iconos se generan con `node tools/make-icon.js` (PNG sin dependencias): `icons/` y los recursos del APK.
 
