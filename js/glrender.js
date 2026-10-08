@@ -2,7 +2,9 @@
 /* ==========================================================================
    Dibujo con WebGL2 (se añade a Render). Dos lienzos apilados:
      · #glview (abajo): fondo, base del mapa, suelo, ceniza, vistas de datos, árboles, edificios y vehículos.
-     · #view (arriba, 2D): lo vectorial —humo, fuego, aspas, sirenas, avisos, barcos, efectos, previsualización y lluvia—.
+     · una capa 2D fuera de pantalla con lo vectorial —humo, fuego, aspas, sirenas, avisos, barcos, efectos y previsualización—, que se sube como textura
+       y se compone en WebGL antes del pase nocturno (así también se oscurece de noche, como en el dibujo 2D).
+     · #view (arriba, 2D): solo la lluvia, que va por encima de la noche, y la captura de los gestos.
    Todos los sprites viven en unas pocas texturas grandes (atlas) y se dibujan en una llamada por página y capa.
    Los objetos se dibujan con prueba de profundidad (z según su orden de atrás a delante) y alpha-to-coverage (MSAA),
    así que lo que queda tapado por un edificio de delante ni se calcula y los bordes siguen suaves.
@@ -40,7 +42,7 @@ void main() { vC = aC; gl_Position = vec4(aP * uXf.xy + uXf.zw, 0.0, 1.0); }`;
 precision mediump float; in vec4 vC; out vec4 o;
 void main() { o = vC; }`;
   const BG_VS = `#version 300 es
-in vec2 aP; void main() { gl_Position = vec4(aP, 0.0, 1.0); }`;
+layout(location = 0) in vec2 aP; void main() { gl_Position = vec4(aP, 0.0, 1.0); }`;
   const BG_FS = `#version 300 es
 precision highp float;
 uniform vec4 uA; uniform vec2 uSz; out vec4 o;
@@ -50,6 +52,10 @@ void main() {
   o = vec4(mix(vec3(0.141, 0.290, 0.408), vec3(0.043, 0.086, 0.141), t), 1.0);
 }`;
 
+  const FX_FS = `#version 300 es
+precision highp float;
+uniform sampler2D uTex; uniform vec2 uSz; out vec4 o;
+void main() { o = texture(uTex, vec2(gl_FragCoord.x / uSz.x, 1.0 - gl_FragCoord.y / uSz.y)); }`;
   const MUL_FS = `#version 300 es
 precision mediump float; uniform vec3 uC; out vec4 o;
 void main() { o = vec4(uC, 1.0); }`;
@@ -96,7 +102,8 @@ void main() { o = vec4(uC, 1.0); }`;
       try { gl = cv.getContext('webgl2', { antialias: true, alpha: false, depth: true, stencil: false, premultipliedAlpha: true, powerPreference: 'high-performance' }); } catch (e) { }
       if (!gl) return;
       this.canvas.parentNode.insertBefore(cv, this.canvas);
-      const G = this.G = { cv, gl, ok: false, epoch: 0, pages: [], samples: 0, bGround: new Batch(), bOver: new Batch(), bItems: new Batch(), bLight: new Batch(), fSlab: new Flat(), fOv: new Flat() };
+      const fxc = document.createElement('canvas');
+      const G = this.G = { cv, gl, fxc, fctx: fxc.getContext('2d'), fxW: 0, fxH: 0, ok: false, epoch: 0, pages: [], samples: 0, bGround: new Batch(), bOver: new Batch(), bItems: new Batch(), bLight: new Batch(), fSlab: new Flat(), fOv: new Flat() };
       cv.addEventListener('webglcontextlost', e => { e.preventDefault(); G.ok = false; });
       cv.addEventListener('webglcontextrestored', () => { try { this.glBuild(); } catch (e) { G.ok = false; } });
       try { this.glBuild(); } catch (e) { console.warn('WebGL no disponible, se usa el dibujo 2D:', e); G.ok = false; }
@@ -105,6 +112,7 @@ void main() { o = vec4(uC, 1.0); }`;
     resizeGL() {
       const G = this.G; if (!G) return;
       G.cv.width = this.canvas.width; G.cv.height = this.canvas.height;
+      G.fxc.width = this.canvas.width; G.fxc.height = this.canvas.height; G.fxW = 0;       // la textura se vuelve a crear con el tamaño nuevo
       G.cv.style.width = this.wpx + 'px'; G.cv.style.height = this.hpx + 'px';
     },
     useGL() { const G = this.G; return !!(G && G.ok && this.rendererPref !== '2d'); },
@@ -136,6 +144,11 @@ void main() { o = vec4(uC, 1.0); }`;
       // fondo (triángulo a pantalla completa)
       const bp = G.bp = prog(BG_VS, BG_FS);
       G.uB = { a: gl.getUniformLocation(bp, 'uA'), sz: gl.getUniformLocation(bp, 'uSz') };
+      const xp = G.xp = prog(BG_VS, FX_FS); G.uX = { tex: gl.getUniformLocation(xp, 'uTex'), sz: gl.getUniformLocation(xp, 'uSz') };
+      G.fxTex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, G.fxTex);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      G.fxW = 0;
       const mp = G.mp = prog(BG_VS, MUL_FS); G.uM = { c: gl.getUniformLocation(mp, 'uC') };
       G.vaoB = gl.createVertexArray(); gl.bindVertexArray(G.vaoB);
       const bb = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, bb); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
@@ -312,6 +325,36 @@ void main() { o = vec4(uC, 1.0); }`;
       this.glDrawBatch(ib);
       if (a2c) gl.disable(gl.SAMPLE_ALPHA_TO_COVERAGE);
       gl.disable(gl.DEPTH_TEST);
+      const T2 = performance.now();
+
+      // ---- capa vectorial (humo, fuego, aspas, sirenas, avisos, barcos, efectos, previsualización) ----
+      const fc = G.fctx;
+      fc.setTransform(1, 0, 0, 1, 0, 0); fc.globalCompositeOperation = 'source-over'; fc.globalAlpha = 1; fc.clearRect(0, 0, CW, CH);
+      fc.setTransform(S, 0, 0, S, offX, offY); fc.imageSmoothingEnabled = true;
+      this._bub = 0; this._sm = 0;
+      for (let k = 0; k < n; k++) {
+        const it = items[k];
+        switch (it.t) {
+          case 1: this.drawBuilding(fc, it, true); break;
+          case 2: this.drawVehicle(fc, it, true); break;
+          case 3: this.drawTornado(fc, it); break;
+          case 4: this.drawBoat(fc, it); break;
+        }
+      }
+      this.drawFx(fc, dt);
+      this.drawImpacts(fc);
+      this.drawPreview(fc);
+      fc.setTransform(1, 0, 0, 1, 0, 0);
+      const T2b = performance.now();
+      // se sube como textura y se compone encima de la escena, antes del pase nocturno
+      gl.useProgram(G.xp); gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, G.fxTex);
+      if (G.fxW !== CW || G.fxH !== CH) { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, G.fxc); G.fxW = CW; G.fxH = CH; }
+      else gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, gl.RGBA, gl.UNSIGNED_BYTE, G.fxc);
+      gl.uniform1i(G.uX.tex, 0); gl.uniform2f(G.uX.sz, CW, CH);
+      gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA); gl.disable(gl.DEPTH_TEST);
+      gl.bindVertexArray(G.vaoB); gl.drawArrays(gl.TRIANGLES, 0, 3);
+      gl.disable(gl.BLEND);
+      // ---- noche ----
       if (dark > 0.02) {
         // 1) oscurecer: multiplicar toda la escena por el color de la noche
         const kk = dark, r = Math.round(lerp(255, 66, kk)), gg = Math.round(lerp(255, 84, kk)), bb = Math.round(lerp(255, 150, kk));
@@ -328,25 +371,8 @@ void main() { o = vec4(uC, 1.0); }`;
         }
         gl.disable(gl.BLEND);
       }
-      const T2 = performance.now();
-
-      // ---- capa 2D por encima: lo vectorial ----
+      // ---- lluvia: en el lienzo visible, por encima de todo ----
       ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1; ctx.clearRect(0, 0, CW, CH);
-      ctx.setTransform(S, 0, 0, S, offX, offY); ctx.imageSmoothingEnabled = true;
-      this._bub = 0; this._sm = 0;
-      for (let k = 0; k < n; k++) {
-        const it = items[k];
-        switch (it.t) {
-          case 1: this.drawBuilding(ctx, it, true); break;
-          case 2: this.drawVehicle(ctx, it, true); break;
-          case 3: this.drawTornado(ctx, it); break;
-          case 4: this.drawBoat(ctx, it); break;
-        }
-      }
-      this.drawFx(ctx, dt);
-      this.drawImpacts(ctx);
-      this.drawPreview(ctx);
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
       this.drawRain(ctx, dt);
 
       const T3 = performance.now(), st = this.stats, k = 0.1;
