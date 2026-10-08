@@ -22,8 +22,8 @@ La interfaz se adapta sola a pantallas pequeñas (vertical y horizontal) y funci
 
 Hay un proyecto Android nativo mínimo en `android/` (un `WebView` a pantalla completa que carga el juego desde los assets; funciona sin internet y las partidas se guardan en el propio dispositivo).
 
-- APK ya compilado: `IsoCity.apk` (firmado con `android/isocity-release.keystore`). Cópialo al teléfono, ábrelo y permite "instalar apps desconocidas" para tu gestor de archivos/navegador. O con el móvil por USB: `adb install -r IsoCity.apk`.
-- Recompilar tras editar el juego (requiere JDK 17 y Android SDK 35): desde `android/` ejecuta `gradlew.bat assembleRelease`; el APK queda en `android/app/build/outputs/apk/release/`. Los archivos web se copian solos a los assets.
+- APK ya compilado: `IsoCity-<versión>.apk` (p. ej. `IsoCity-1.2.1.apk`, firmado con `android/isocity-release.keystore`). Cópialo al teléfono, ábrelo y permite "instalar apps desconocidas" para tu gestor de archivos/navegador. O con el móvil por USB: `adb install -r IsoCity-<versión>.apk`.
+- Recompilar tras editar el juego (requiere JDK 17 y Android SDK 35): desde `android/` ejecuta `gradlew.bat assembleRelease`; el APK queda en `android/app/build/outputs/apk/release/IsoCity-<versión>.apk` y se copia también a la carpeta raíz del proyecto con ese nombre. La versión sale de `versionName` en `android/app/build.gradle`. Los archivos web se copian solos a los assets.
 - **Guarda una copia de `android/isocity-release.keystore` y `android/keystore.properties`**: sin ellos no podrás publicar actualizaciones que se instalen sobre la versión anterior.
 - Botón Atrás: cierra ventanas/herramientas y, si no hay nada, sale. La partida se autoguarda al pasar a segundo plano.
 - Los iconos se generan con `node tools/make-icon.js` (PNG sin dependencias): `icons/` y los recursos del APK.

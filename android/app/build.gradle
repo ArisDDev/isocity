@@ -47,7 +47,26 @@ android {
         abortOnError false
         checkReleaseBuilds false
     }
+
+    // El archivo generado lleva la versión en el nombre: IsoCity-1.2.1.apk (los de depuración, IsoCity-1.2.1-debug.apk)
+    applicationVariants.all { variant ->
+        variant.outputs.all {
+            outputFileName = "IsoCity-${variant.versionName}${variant.buildType.name == 'release' ? '' : '-' + variant.buildType.name}.apk"
+        }
+    }
 }
+
+// Tras assembleRelease, el APK firmado se copia a la carpeta raíz del proyecto con su versión: IsoCity-<versión>.apk
+tasks.register('copyApk') {
+    doNotTrackState('copia el APK a la carpeta raíz del proyecto, que contiene archivos que Gradle no puede hashear')
+    doLast {
+        copy {
+            from layout.buildDirectory.file("outputs/apk/release/IsoCity-${android.defaultConfig.versionName}.apk")
+            into "$rootDir/.."
+        }
+    }
+}
+tasks.matching { it.name == 'assembleRelease' }.configureEach { finalizedBy 'copyApk' }
 
 // El juego web (index.html, css/, js/) se copia a los assets antes de cada compilación,
 // así la carpeta raíz del proyecto es la única fuente de verdad.
