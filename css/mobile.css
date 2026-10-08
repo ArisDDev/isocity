@@ -32,7 +32,9 @@ body.compact .btns button em, body.compact #bStats, body.compact #bOrd, body.com
 body.compact #speedCtl { padding: 2px; }
 body.compact #speedCtl button:not(.active) { display: none; }
 body.compact #speedCtl button { width: 42px; height: 34px; font-size: 18px; }
-body.compact.portrait #topbar { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); align-items: center; justify-items: start; }
+/* el dinero es la columna más ancha; ninguna celda puede salirse de su columna (antes una cifra grande invadía la de habitantes) */
+body.compact.portrait #topbar { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, .9fr); align-items: center; justify-items: start; }
+body.compact.portrait #topbar > .tb { max-width: 100%; }
 body.compact.portrait .tb.speed, body.compact.portrait .btns button { justify-self: center; }
 body.compact.landscape #topbar { flex-wrap: nowrap; }
 body.compact.landscape #topbar .spacer { display: block; flex: 1; }

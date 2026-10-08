@@ -92,6 +92,20 @@ const Render = {
     if (a) ctx.drawImage(a.cv, a.x, a.y, a.w, a.h, x - s.ox / f, y - s.oy / f, s.dw || a.w / SPR, s.dh || a.h / SPR);
     else ctx.drawImage(s.c, x - s.ox / f, y - s.oy / f, s.dw || s.c.width / SPR, s.dh || s.c.height / SPR);
   },
+  /** Aspa de aerogenerador a 'step' de ROT_STEPS pasos dentro de un tercio de vuelta (las 3 aspas son iguales), centrada en el buje. */
+  ROT_STEPS: 24,
+  rotorSprite(step) {
+    const c = this._rotors || (this._rotors = []);
+    if (c[step]) return c[step];
+    const R = 21, M = 4, sz = (R + M) * 2, cv = document.createElement('canvas');
+    cv.width = cv.height = Math.ceil(sz * SPR);
+    const g = cv.getContext('2d'); g.scale(SPR, SPR); g.translate(R + M, R + M);
+    const ang = step * (Math.PI * 2 / 3) / this.ROT_STEPS;
+    g.strokeStyle = '#f4f6f8'; g.lineWidth = 2.2; g.lineCap = 'round';
+    for (let k = 0; k < 3; k++) { const a = ang + k * Math.PI * 2 / 3; g.beginPath(); g.moveTo(0, 0); g.lineTo(Math.cos(a) * R, Math.sin(a) * R * 0.95); g.stroke(); }
+    g.fillStyle = '#c9ced3'; g.beginPath(); g.arc(0, 0, 2.4, 0, Math.PI * 2); g.fill();
+    return (c[step] = { c: cv, ox: (R + M) * SPR, oy: (R + M) * SPR });
+  },
   treeSpr(tr, h) {
     const row = this._tr || (this._tr = [[], [], [], [], []]), v = (h * 4) | 0;
     return row[tr][v] || (row[tr][v] = Sprites.treeSprite(tr - 1, v));
@@ -700,7 +714,7 @@ const Render = {
         }
         ctx.globalAlpha = 1;
       }
-      if (A.rotor) {
+      if (A.rotor && !noSprite) {                  // con WebGL el aspa es un sprite con profundidad (glrender.js): un edificio delante la tapa
         const [px, py] = P(A.rotor[0], A.rotor[1], A.rotor[2]);
         const hx = it.x + px, hy = it.y + py, ang = t * 1.8 + b.id;
         ctx.strokeStyle = '#f4f6f8'; ctx.lineWidth = 2.2; ctx.lineCap = 'round';

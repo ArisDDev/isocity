@@ -276,10 +276,19 @@ void main() { o = vec4(uC, 1.0); }`;
         const it = items[k], z = 0.98 - 0.96 * (k + 0.5) / n;
         switch (it.t) {
           case 0: this.glPush(ib, this.treeSpr(it.tr, it.h), it.x, it.y, 0.85 + it.h * 0.3, z, 1); break;
-          case 1:
+          case 1: {
             this.glPush(ib, it.e.base, it.x, it.y, 1, z, 1);
+            if (zoom > 0.4) {
+              const A = Sprites.ANCH[it.b.def ? it.b.key : it.b.key + it.b.lvl];
+              if (A && A.rotor) {
+                const [px, py] = Sprites.P(A.rotor[0], A.rotor[1], A.rotor[2]), T3 = Math.PI * 2 / 3;
+                const ang = ((this.time * 1.8 + it.b.id) % T3 + T3) % T3, st = Math.min(this.ROT_STEPS - 1, (ang / T3 * this.ROT_STEPS) | 0);
+                this.glPush(ib, this.rotorSprite(st), it.x + px, it.y + py, 1, z - 0.4 * 0.96 / n, 1);
+              }
+            }
             if (lights && it.b.on) { const l = Sprites.lights(it.e, it.b); if (l) this.glPush(lb, l, it.x, it.y, 1, z, 1); }
             break;
+          }
           case 2: {
             const sx = (it.qx - it.qy) * TW / 2, sy = (it.qx + it.qy) * TH / 2;
             this.glPush(ib, this.vehSprite(it), sx, sy, 1, z, 1);

@@ -293,15 +293,35 @@ const UI = {
     if (this._acc > 0.25) { this._acc = 0; this.refreshHud(); }
     if (this._miniAcc > 0.15) { this._miniAcc = 0; this.drawMinimap(); }
   },
+  /** En móvil reduce la letra de una cifra larga hasta que quepa en la columna que le toca de la barra superior (mínimo `min` px); en escritorio y en horizontal no toca nada. */
+  fitWidth(el, base, min) {
+    const compact = this.isCompact(), key = compact ? el.textContent + '|' + window.innerWidth : '';
+    if (el._fk === key) return;
+    el._fk = key;
+    if (!compact) { el.style.fontSize = ''; return; }
+    const tb = el.closest('.tb'), bar = $('#topbar'), cs = getComputedStyle(tb), ico = tb.querySelector('.ico');
+    const cols = getComputedStyle(bar).gridTemplateColumns.split(' ').map(parseFloat);       // en vertical la barra es una cuadrícula de 4 columnas
+    const idx = [...bar.children].filter(c => c.classList.contains('tb')).indexOf(tb);
+    const track = cols.length === 4 && idx >= 0 && idx < 4 ? cols[idx] : tb.clientWidth;
+    const avail = track - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0) - (ico ? ico.offsetWidth : 0) - (parseFloat(cs.columnGap) || 0);
+    const ec = getComputedStyle(el), g = this._mctx || (this._mctx = document.createElement('canvas').getContext('2d'));
+    g.font = ec.fontWeight + ' ' + base + 'px ' + ec.fontFamily;
+    const natural = g.measureText(el.textContent).width * 1.06;                              // margen para las cifras tabulares
+    if (!(avail > 0)) { el._fk = null; return; }                                           // barra aún oculta (título): se calcula cuando se vea
+    el.style.fontSize = natural > avail ? Math.max(min, Math.floor(base * avail / natural * 10) / 10) + 'px' : '';
+  },
   refreshHud() {
     const S = Sim.S; if (!S) return;
     const st = S.stats;
     setText($('#cName'), S.name); setText($('#cLevel'), Sim.cityLevel()); setText($('#cDate'), Sim.dateStr());
     const m = $('#vMoney'); setText(m, S.diff === 'sandbox' ? '∞ Sandbox' : money(S.money)); m.classList.toggle('neg', S.money < 0);
+    this.fitWidth(m, 13, 8);
     const net = S.budget ? S.budget.net : 0;
     const n = $('#vNet'); setText(n, S.budget ? `${net >= 0 ? '+' : '−'}${money(Math.abs(net)).replace('-', '')}/mes` : 'sin datos'); n.className = net >= 0 ? 'pos' : 'neg';
+    this.fitWidth(n, 10, 7);
     setText($('#vPop'), fmt(st.pop));
     setText($('#vJobs'), st.pop > 5 ? `${this.isCompact() ? 'Desemp.' : 'Desempleo'} ${pct(st.unemp)}` : (this.isCompact() ? 'Sin hab.' : 'Sin habitantes'));
+    this.fitWidth($('#vPop'), 13, 9); this.fitWidth($('#vJobs'), 10, 7); this.fitWidth($('#vHappy').nextElementSibling, 10, 7);
     const h = Math.round(st.happiness);
     setText($('#vHappy'), h + '%');
     setText($('#vHappyIco'), h >= 80 ? '😄' : h >= 62 ? '🙂' : h >= 45 ? '😐' : h >= 28 ? '😟' : '😡');

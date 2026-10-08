@@ -33,7 +33,7 @@ kbd { background: rgba(255,255,255,.12); border: 1px solid var(--bd); border-bot
 .tb.stat .ico { font-size: 22px; }
 .tb.stat.mini .ico { font-size: 17px; }
 .tb.stat .val { display: flex; flex-direction: column; line-height: 1.15; }
-.tb.stat .val b { font-size: 15px; font-variant-numeric: tabular-nums; white-space: pre; text-align: center; }
+.tb.stat .val b { font-size: 15px; font-variant-numeric: tabular-nums; }
 .tb.stat.mini .val b { font-size: 12px; }
 .tb.stat .val small { color: var(--dim); font-size: 11px; }
 .tb.stat.mini { padding: 3px 6px; }
@@ -160,7 +160,7 @@ button.danger:hover { background: rgba(255,107,107,.3); }
 
 /* presupuesto */
 .srow { display: grid; grid-template-columns: 170px 1fr 48px; gap: 10px; align-items: center; padding: 3px 0; }
-.srow b { text-align: right; font-variant-numeric: tabular-nums; white-space: pre; text-align: center; }
+.srow b { text-align: right; font-variant-numeric: tabular-nums; }
 input[type=range] { accent-color: var(--acc); width: 100%; cursor: pointer; }
 .bsum { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 22px; }
 .bcol h5 { margin: 0 0 6px; color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: .6px; }
