@@ -1,6 +1,6 @@
 # IsoCity — constructor de ciudades isométrico
 
-Juego de gestión urbana (estilo SimCity / Cities: Skylines) hecho con HTML5 Canvas y JavaScript puro.
+Juego de gestión urbana isométrico hecho con HTML5 (Canvas 2D y WebGL2) y JavaScript puro, con versión para Android.
 **No usa ningún asset externo**: edificios, árboles, vehículos, terreno, iconos y hasta la música y los efectos de sonido se generan por código.
 
 ## Cómo jugar
@@ -80,3 +80,9 @@ serve.js              servidor estático opcional
 ```
 
 Para regenerar la versión de un solo archivo tras editar el código: `node build.js`.
+
+## Licencia
+
+Código disponible para verlo, estudiarlo y usarlo **sin fines comerciales** bajo la [PolyForm Noncommercial License 1.0.0](LICENSE). El uso comercial (vender el juego o una copia, incluirlo en un producto de pago, publicarlo con anuncios o compras, etc.) no está permitido sin permiso del autor.
+
+Copyright (c) 2026 ArisDDev.
