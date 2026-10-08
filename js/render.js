@@ -8,7 +8,7 @@ const Render = {
   canvas: null, ctx: null, wpx: 800, hpx: 600, dpr: 1,
   time: 0, fx: [], overlay: 'none', night: 0, nightOn: true,
   preview: null, selected: null, hoverTile: null,
-  items: [], lodLevel: 0, quality: 'high', stats: { fps: 0 }, _fpsAcc: 0, _fpsN: 0,
+  items: [], lodLevel: 0, quality: 'high', stats: { fps: 0 }, _fpsAcc: 0, _fpsN: 0, CH: 8, _ch: null, _cb: [0, 0, 0, 0],
   boats: [], _boatKey: '', rain: 0, raining: false, rainT: 60, weatherOn: true, drops: null,
 
   init(canvas) {
@@ -20,6 +20,11 @@ const Render = {
     const c = g.getContext('2d'), gr = c.createRadialGradient(32, 32, 0, 32, 32, 32);
     gr.addColorStop(0, 'rgba(255,220,140,1)'); gr.addColorStop(0.35, 'rgba(255,190,90,0.45)'); gr.addColorStop(1, 'rgba(255,170,60,0)');
     c.fillStyle = gr; c.fillRect(0, 0, 64, 64);
+    // brillo de farola con su opacidad ya aplicada: evita cambiar globalAlpha dos veces por farola
+    const l = this.glowLamp = document.createElement('canvas'); l.width = l.height = 64;
+    const lc = l.getContext('2d'); lc.globalAlpha = 0.75; lc.drawImage(g, 0, 0);
+    const k = this.glowCar = document.createElement('canvas'); k.width = k.height = 64;
+    const kc = k.getContext('2d'); kc.globalAlpha = 0.42; kc.drawImage(g, 0, 0);               // faros de coche
   },
   /** Calidad por defecto: alta en escritorio; media (o baja en equipos justos) en dispositivos táctiles. */
   defaultQuality() {
@@ -28,7 +33,7 @@ const Render = {
     const weak = (navigator.deviceMemory && navigator.deviceMemory <= 2) || (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4);
     return weak ? 'low' : 'medium';
   },
-  setQuality(q) { this.quality = q; try { localStorage.setItem('isocity_quality', q); } catch (e) { } this.resize(); this._gc = null; },
+  setQuality(q) { this.quality = q; try { localStorage.setItem('isocity_quality', q); } catch (e) { } this.resize(); this._gc = null; this.freeChunks(); },
   resize() {
     const coarse = window.matchMedia && matchMedia('(pointer: coarse)').matches;
     const cap = this.quality === 'low' ? 1 : this.quality === 'medium' ? 1.25 : (coarse ? 1.75 : 2);
@@ -136,7 +141,7 @@ const Render = {
     this.lodLevel = zl <= 0.5 ? 2 : zl <= 1.0 ? 1 : 0;
     const useCache = zoom < 0.7 && ov === 'none';
     const ts = this.tileSprites();
-    if (useCache) this.drawGroundCache(ctx);
+    if (useCache) this.drawGroundCache(ctx); else this.drawGroundChunks(ctx, ts);
     const showTrees = zoom >= 0.38;
 
     if (!useCache || showTrees) for (let qy = 0; qy < N; qy++) {
@@ -145,14 +150,13 @@ const Render = {
         let x, y;
         switch (rot) { case 0: x = qx; y = qy; break; case 1: x = qy; y = N - 1 - qx; break; case 2: x = N - 1 - qx; y = N - 1 - qy; break; default: x = N - 1 - qy; y = qx; }
         const i = y * N + x;
-        if (!useCache) this.groundTile(ctx, qx, qy, x, y, i, this.quality !== 'low', ts);
         if (ov !== 'none') this.overlayTile(ctx, ov, x, y, i, (qx - qy) * TW / 2, (qx + qy) * TH / 2);
         const tr = W.tree[i];
         if (showTrees && tr && !W.road[i]) items.push({ k: qx + qy + 1, t: 0, x: (qx - qy) * TW / 2 + (hash2(x, y, 9) - 0.5) * 12, y: (qx + qy) * TH / 2 + TH / 2 + (hash2(x, y, 10) - 0.5) * 6, tr, h: hash2(x, y, 11) });
       }
     }
 
-    this.drawScorch(ctx, N, rot);
+    if (useCache) this.drawScorch(ctx, N, rot);       // con el suelo por bloques la ceniza ya va dentro de cada bloque
     // edificios
     for (const b of W.buildings.values()) {
       let ax, ay, bx, by; const X0 = b.x, Y0 = b.y, X1 = b.x + b.w, Y1 = b.y + b.h;
@@ -246,7 +250,24 @@ const Render = {
       } else g[i] = Sprites.groundTile(ter === TER.SAND ? 'sand' : 'grass', (hash2(x, y, 3) * 4) | 0);
       if (W.zone[i] && !rd) z[i] = Sprites.zoneTile(W.zone[i]);
     }
-    return (this._ts = { ver: W.gver, rot: Cam.rot, N, seed: W.seed, g, z, rp, ph });
+    const nt = { ver: W.gver, rot: Cam.rot, N, seed: W.seed, g, z, rp, ph };
+    // los bloques de suelo solo se invalidan donde algún sprite de casilla ha cambiado
+    if (c && c.N === N && c.rot === Cam.rot && c.seed === W.seed) this.markChangedChunks(c, nt); else this.freeChunks();
+    return (this._ts = nt);
+  },
+  /** Índice (cy*G+cx) del bloque que contiene la casilla i, según la rotación actual. */
+  chunkOfTile(i, N, rot) {
+    const x = i % N, y = (i / N) | 0; let qx, qy;
+    switch (rot) { case 0: qx = x; qy = y; break; case 1: qx = N - 1 - y; qy = x; break; case 2: qx = N - 1 - x; qy = N - 1 - y; break; default: qx = y; qy = N - 1 - x; }
+    return ((qy / this.CH) | 0) * Math.ceil(N / this.CH) + ((qx / this.CH) | 0);
+  },
+  markChangedChunks(a, b) {
+    const s = this._ch; if (!s || s.N !== b.N || s.rot !== b.rot) return;
+    const N = b.N, n = N * N;
+    for (let i = 0; i < n; i++) {
+      if (a.g[i] === b.g[i] && a.z[i] === b.z[i] && a.rp[i] === b.rp[i]) continue;
+      const e = s.map.get(this.chunkOfTile(i, N, b.rot)); if (e) e.ver++;
+    }
   },
   groundTile(ctx, qx, qy, x, y, i, ripple, ts) {
     const sx = (qx - qy) * TW / 2, sy = (qx + qy) * TH / 2;
@@ -287,6 +308,133 @@ const Render = {
     ctx.drawImage(c.cv, c.minX, c.minY, c.cv.width / c.s, c.cv.height / c.s);
   },
 
+  /* ---------- suelo por bloques ---------- */
+  /**
+   * Con zoom >= 0,7 el suelo se pinta con bloques de CH×CH casillas (coordenadas rotadas) que se dibujan una sola vez:
+   * suelo + ceniza en un lienzo y, si el bloque tiene agua, dos capas de ondas que se animan por opacidad en contrafase.
+   * Cada nivel de detalle (LOD) tiene su propia versión; un bloque solo se reconstruye si cambia su contenido.
+   * Lo que no cabe en el presupuesto de reconstrucción de este fotograma se pinta casilla a casilla como antes.
+   */
+  chunkStore() {
+    const N = W.N, s = this._ch;
+    if (s && s.N === N && s.rot === Cam.rot && s.seed === W.seed && s.q === this.quality) return s;
+    this.freeChunks();
+    const G = Math.ceil(N / this.CH);
+    return (this._ch = { N, G, rot: Cam.rot, seed: W.seed, q: this.quality, map: new Map(), px: 0, frame: 0, sig: new Int32Array(G * G) });
+  },
+  freeChunks() {
+    const s = this._ch; if (!s) return;
+    for (const e of s.map.values()) for (const v of e.v) if (v) for (const cv of v.cvs) if (cv) cv.width = cv.height = 0;
+    this._ch = null;
+  },
+  /** Caja del bloque en coordenadas de mundo (margen para los sprites de casilla) → this._cb = [minX, minY, maxX, maxY]. */
+  chunkBounds(cx, cy, N) {
+    const CH = this.CH, x0 = cx * CH, y0 = cy * CH, x1 = Math.min(N, x0 + CH), y1 = Math.min(N, y0 + CH), b = this._cb;
+    b[0] = (x0 - y1 + 1) * TW / 2 - 38; b[1] = (x0 + y0) * TH / 2 - 14;
+    b[2] = (x1 - 1 - y0) * TW / 2 + 38; b[3] = (x1 + y1 - 2) * TH / 2 + TH + 18;
+    return b;
+  },
+  /** Firma de ceniza por bloque (cambia cuando un fuego deja ceniza o ésta se desvanece un escalón). */
+  scanScorch(s) {
+    const sig = s.sig, sc = W.scorch, N = s.N, G = s.G, CH = this.CH, rot = s.rot;
+    sig.fill(0);
+    for (let i = 0; i < sc.length; i++) {
+      const v = sc[i]; if (!v) continue;
+      const x = i % N, y = (i / N) | 0; let qx, qy;
+      switch (rot) { case 0: qx = x; qy = y; break; case 1: qx = N - 1 - y; qy = x; break; case 2: qx = N - 1 - x; qy = N - 1 - y; break; default: qx = y; qy = N - 1 - x; }
+      sig[((qy / CH) | 0) * G + ((qx / CH) | 0)] += (v >= 66 ? 12 : 1 + ((v / 6) | 0)) * (1 + i % 61);
+    }
+  },
+  buildChunk(s, e, lod, ts) {
+    const N = s.N, CH = this.CH, S = 2 / (1 << lod), x0 = e.cx * CH, y0 = e.cy * CH, x1 = Math.min(N, x0 + CH), y1 = Math.min(N, y0 + CH);
+    const b = this.chunkBounds(e.cx, e.cy, N), minX = b[0], minY = b[1], bw = b[2] - b[0], bh = b[3] - b[1];
+    let v = e.v[lod];
+    if (!v) v = e.v[lod] = { cvs: [document.createElement('canvas'), null, null], ver: -1, sig: 0, px: 0, used: 0, rip: false, minX, minY, S };
+    s.px -= v.px;
+    const cv = v.cvs[0]; cv.width = Math.ceil(bw * S); cv.height = Math.ceil(bh * S);
+    const g = cv.getContext('2d'); g.setTransform(S, 0, 0, S, -minX * S, -minY * S); g.imageSmoothingEnabled = true;
+    const keep = this.lodLevel; this.lodLevel = lod;
+    const dia = this._dia || (this._dia = Sprites.plainDiamond('#15100c', 1));
+    let water = false;
+    for (let qy = y0; qy < y1; qy++) for (let qx = x0; qx < x1; qx++) {
+      const [x, y] = this.qToTile(qx, qy), i = y * N + x;
+      this.groundTile(g, qx, qy, x, y, i, false, ts);
+      if (ts.rp[i]) water = true;
+    }
+    for (let qy = y0; qy < y1; qy++) for (let qx = x0; qx < x1; qx++) {          // ceniza: encima de todo el suelo del bloque
+      const [x, y] = this.qToTile(qx, qy), sc = W.scorch[y * N + x];
+      if (!sc) continue;
+      g.globalAlpha = Math.min(0.55, sc / 120);
+      this.spr(g, dia, (qx - qy) * TW / 2, (qx + qy) * TH / 2);
+    }
+    g.globalAlpha = 1;
+    let px = cv.width * cv.height;
+    // capas de ondas (resolución reducida: son sutiles)
+    v.rip = water && this.quality !== 'low';
+    if (v.rip) {
+      const RL = Math.min(2, lod + 1), RS = 2 / (1 << RL), rw = Math.ceil(bw * RS), rh = Math.ceil(bh * RS), rg = [null, null];
+      for (let k = 1; k <= 2; k++) {
+        const rc = v.cvs[k] || (v.cvs[k] = document.createElement('canvas')); rc.width = rw; rc.height = rh;
+        rg[k - 1] = rc.getContext('2d'); rg[k - 1].setTransform(RS, 0, 0, RS, -minX * RS, -minY * RS); rg[k - 1].imageSmoothingEnabled = true;
+      }
+      this.lodLevel = RL;
+      for (let qy = y0; qy < y1; qy++) for (let qx = x0; qx < x1; qx++) {
+        const [x, y] = this.qToTile(qx, qy), i = y * N + x;
+        if (ts.rp[i]) this.spr(rg[ts.ph[i] < Math.PI ? 0 : 1], ts.rp[i], (qx - qy) * TW / 2, (qx + qy) * TH / 2);
+      }
+      px += 2 * rw * rh;
+    } else for (let k = 1; k <= 2; k++) if (v.cvs[k]) v.cvs[k].width = v.cvs[k].height = 0;
+    this.lodLevel = keep;
+    v.ver = e.ver; v.sig = s.sig[e.cy * s.G + e.cx]; v.px = px; v.minX = minX; v.minY = minY; v.S = S; s.px += px;
+    return v;
+  },
+  drawGroundChunks(ctx, ts) {
+    const s = this.chunkStore(), N = s.N, G = s.G, CH = this.CH, lod = this.lodLevel, vw = this.view, rot = s.rot;
+    this.scanScorch(s);
+    s.frame++;
+    const list = this._cl || (this._cl = []); list.length = 0;
+    const t0 = performance.now(), budget = 6, ripple = this.quality !== 'low';
+    let built = 0;
+    for (let cy = 0; cy < G; cy++) for (let cx = 0; cx < G; cx++) {
+      const b = this.chunkBounds(cx, cy, N);
+      if (b[2] < vw.vx0 || b[0] > vw.vx1 || b[3] < vw.vy0 || b[1] > vw.vy1) continue;
+      const id = cy * G + cx;
+      let e = s.map.get(id); if (!e) { e = { cx, cy, ver: 0, v: [null, null, null] }; s.map.set(id, e); }
+      let v = e.v[lod];
+      if (!v || v.ver !== e.ver || v.sig !== s.sig[id]) {
+        if (built === 0 || performance.now() - t0 < budget) { v = this.buildChunk(s, e, lod, ts); built++; }
+        else {                                                    // sin presupuesto: este bloque se pinta casilla a casilla en este fotograma
+          for (let qy = cy * CH; qy < Math.min(N, cy * CH + CH); qy++) for (let qx = cx * CH; qx < Math.min(N, cx * CH + CH); qx++) {
+            const [x, y] = this.qToTile(qx, qy), i = y * N + x;
+            this.groundTile(ctx, qx, qy, x, y, i, ripple, ts);
+            const sc = W.scorch[i];
+            if (sc) { ctx.globalAlpha = Math.min(0.55, sc / 120); this.spr(ctx, this._dia || (this._dia = Sprites.plainDiamond('#15100c', 1)), (qx - qy) * TW / 2, (qx + qy) * TH / 2); ctx.globalAlpha = 1; }
+          }
+          continue;
+        }
+      }
+      v.used = s.frame;
+      ctx.drawImage(v.cvs[0], v.minX, v.minY, v.cvs[0].width / v.S, v.cvs[0].height / v.S);
+      if (v.rip) list.push(v);
+    }
+    if (list.length) {                                            // ondas del agua: dos capas en contrafase
+      const t = this.time * 1.3, RS = 2 / (1 << Math.min(2, lod + 1));
+      for (let k = 0; k < 2; k++) {
+        ctx.globalAlpha = 0.12 + 0.2 * (0.5 + 0.5 * Math.sin(t + k * Math.PI));
+        for (let n = 0; n < list.length; n++) { const v = list[n], rc = v.cvs[k + 1]; ctx.drawImage(rc, v.minX, v.minY, rc.width / RS, rc.height / RS); }
+      }
+      ctx.globalAlpha = 1;
+    }
+    // presupuesto de memoria: se descartan los bloques que llevan más tiempo sin verse
+    const cap = this.quality === 'high' ? 28e6 : this.quality === 'medium' ? 14e6 : 8e6;
+    if (s.px > cap) {
+      const old = [];
+      for (const e of s.map.values()) for (let l = 0; l < 3; l++) { const v = e.v[l]; if (v && v.used !== s.frame && v.px) old.push([v, e, l]); }
+      old.sort((p, q) => p[0].used - q[0].used);
+      for (let n = 0; n < old.length && s.px > cap; n++) { const [v, e, l] = old[n]; for (const cv of v.cvs) if (cv) cv.width = cv.height = 0; s.px -= v.px; e.v[l] = null; }
+    }
+  },
+
   /* ---------- luces nocturnas ---------- */
   /**
    * Las ventanas encendidas y las farolas se componen en un búfer aparte siguiendo el mismo orden de
@@ -302,6 +450,7 @@ const Render = {
     lc.setTransform(dpr * zoom, 0, 0, dpr * zoom, dpr * (this.wpx / 2 - Cam.x * zoom + shx), dpr * (this.hpx / 2 - Cam.y * zoom + shy));
     // farolas como elementos con profundidad propia (un edificio delante las tapa; una farola delante tapa al edificio)
     let list = items;
+    const heads = zoom > 0.5 && dark > 0.3;
     if (zoom >= 0.7) {                                          // a menos zoom las farolas son invisibles: ni se dibujan ni se ordenan
       list = items.slice();
       for (let qy = 0; qy < N; qy++) {
@@ -323,7 +472,10 @@ const Render = {
       } else if (it.t === 0) {
         this.sprScaled(lc, Sprites.sil(this.treeSpr(it.tr, it.h)), it.x, it.y, 0.85 + it.h * 0.3);
       } else if (it.t === 9) {
-        lc.globalAlpha = 0.75; lc.drawImage(this.glow, it.x - 15, it.y - 14, 30, 30); lc.globalAlpha = 1;
+        lc.drawImage(this.glowLamp, it.x - 15, it.y - 14, 30, 30);
+      } else if (it.t === 2 && heads) {                               // faros del coche
+        const sx = (it.qx - it.qy) * TW / 2, sy = (it.qx + it.qy) * TH / 2;
+        lc.drawImage(this.glowCar, sx - 9, sy - 12, 18, 18);
       }
     }
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -343,14 +495,22 @@ const Render = {
       const [tx, ty] = this.qToTile(left ? x0 : x1, left ? N - 1 : y1);
       return null;
     };
+    const vw = this.view, mg = 6;
     for (let k = 0; k < N; k++) {
-      // cara izquierda (qy = N-1) y derecha (qx = N-1)
+      // cara izquierda (qy = N-1) y derecha (qx = N-1); solo las que caen dentro de la vista
+      const lx0 = (k - N) * TW / 2, ly0 = (k + N) * TH / 2, rx1 = (N - k) * TW / 2, ry0 = (N + k) * TH / 2;
+      const visL = lx0 + TW / 2 >= vw.vx0 - mg && lx0 <= vw.vx1 + mg && ly0 + TH / 2 + T + mg >= vw.vy0 && ly0 <= vw.vy1 + mg;
+      const visR = rx1 >= vw.vx0 - mg && rx1 - TW / 2 <= vw.vx1 + mg && ry0 + TH / 2 + T + mg >= vw.vy0 && ry0 <= vw.vy1 + mg;
+      if (!visL && !visR) continue;
       const [lx, ly] = this.qToTile(k, N - 1), [rx, ry] = this.qToTile(N - 1, k);
       const lt = W.ter[ly * N + lx], rt = W.ter[ry * N + rx];
       let p0 = [(k - N) * TW / 2, (k + N) * TH / 2], p1 = [(k + 1 - N) * TW / 2, (k + 1 + N) * TH / 2];
+      if (visL) {
       ctx.fillStyle = lt === TER.WATER ? '#2373b3' : '#7a5a3c';
       ctx.beginPath(); ctx.moveTo(p0[0], p0[1]); ctx.lineTo(p1[0], p1[1]); ctx.lineTo(p1[0], p1[1] + T); ctx.lineTo(p0[0], p0[1] + T); ctx.closePath(); ctx.fill();
       if (lt !== TER.WATER) { ctx.fillStyle = lt === TER.SAND ? '#d9c58c' : '#58963f'; ctx.beginPath(); ctx.moveTo(p0[0], p0[1]); ctx.lineTo(p1[0], p1[1]); ctx.lineTo(p1[0], p1[1] + 4); ctx.lineTo(p0[0], p0[1] + 4); ctx.closePath(); ctx.fill(); }
+      }
+      if (!visR) continue;
       p0 = [(N - k) * TW / 2, (N + k) * TH / 2]; p1 = [(N - k - 1) * TW / 2, (N + k + 1) * TH / 2];
       ctx.fillStyle = rt === TER.WATER ? '#185a92' : '#5d442c';
       ctx.beginPath(); ctx.moveTo(p0[0], p0[1]); ctx.lineTo(p1[0], p1[1]); ctx.lineTo(p1[0], p1[1] + T); ctx.lineTo(p0[0], p0[1] + T); ctx.closePath(); ctx.fill();
@@ -539,10 +699,6 @@ const Render = {
     this.spr(ctx, vs[o] || (vs[o] = Sprites.vehicle(v.kind, v.color, it.alongX)), sx, sy);
     if (v.kind === 'fire') {
       ctx.fillStyle = Math.floor(this.time * 6) % 2 ? '#ff4040' : '#4080ff'; ctx.beginPath(); ctx.arc(sx, sy - 8.5, 1.8, 0, 7); ctx.fill();
-    }
-    if (this.nightOn && this.night > 0.3 && Cam.zoom > 0.5 && this.quality !== 'low') {      // faros
-      ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = this.night * 0.5; ctx.drawImage(this.glow, sx - 9, sy - 12, 18, 18);
-      ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
     }
   },
   drawTornado(ctx, it) {

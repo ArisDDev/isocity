@@ -3,14 +3,19 @@
    Juego: bucle principal, entrada de ratón/teclado, guardado y pantalla de título
    ========================================================================== */
 const Game = {
-  mode: 'title', last: 0, showFps: false, autosave: true, fpsCap: 0,
+  mode: 'title', last: 0, showFps: false, autosave: true, fpsCap: 'auto', _rafMs: 0, _prevTs: 0,
   keys: {}, ptrs: new Map(), pan: null, drag: null, pinch: null, hover: null, spaceDown: false, _driftT: 0,
 
   setShowFps(v) { this.showFps = v; try { localStorage.setItem('isocity_showfps', v ? '1' : '0'); } catch (e) { } },
-  setFpsCap(n) { this.fpsCap = n; try { localStorage.setItem('isocity_fpscap', String(n)); } catch (e) { } },
+  /** Límite de fps: 'auto' (60 en pantallas táctiles, 30 con calidad baja), '30', '60' o '0' (sin límite). Solo se aplica si la pantalla refresca bastante más rápido que el límite. */
+  setFpsCap(n) { this.fpsCap = String(n); try { localStorage.setItem('isocity_fpscap', this.fpsCap); } catch (e) { } },
+  capNow() {
+    const m = this.fpsCap;
+    return m === 'auto' ? (Render.quality === 'low' ? 30 : (window.matchMedia && matchMedia('(pointer: coarse)').matches ? 60 : 0)) : (+m || 0);
+  },
   init() {
     Render.init($('#view'));
-    try { const f = localStorage.getItem('isocity_fpscap'); this.fpsCap = f !== null ? +f : (Render.quality === 'low' ? 30 : 0); } catch (e) { this.fpsCap = 0; }
+    try { const f = localStorage.getItem('isocity_fpscap'); this.fpsCap = f === '0' || f === '30' || f === '60' ? f : 'auto'; } catch (e) { this.fpsCap = 'auto'; }
     try { this.showFps = localStorage.getItem('isocity_showfps') === '1'; } catch (e) { }
     UI.init();
     this.bindInput();
@@ -24,6 +29,8 @@ const Game = {
   loop(ts) {
     requestAnimationFrame(t => this.loop(t));
     let dt = (ts - this.last) / 1000; this.last = ts;
+    const raw = ts - this._prevTs; this._prevTs = ts;
+    if (raw > 0 && raw < 50) this._rafMs = this._rafMs ? this._rafMs * 0.95 + raw * 0.05 : raw;      // intervalo medio de la pantalla
     if (!(dt > 0)) dt = 0.016; dt = Math.min(dt, 0.08);
     if (this.mode === 'play') {
       this.keyPan(dt);
@@ -34,7 +41,9 @@ const Game = {
       Sim.frame(dt, false);
     }
     this._drawAcc = (this._drawAcc || 0) + dt;
-    if (!this.fpsCap || ts - (this._lastDraw || 0) >= 1000 / this.fpsCap - 4) { Render.draw(this._drawAcc); this._drawAcc = 0; this._lastDraw = ts; }
+    const cap = this.capNow(), ref = this._rafMs || 16.7;
+    // solo se limita si la pantalla va claramente más rápido (p. ej. 120 Hz con límite de 60); con 60/90 Hz se dibuja cada fotograma
+    if (!cap || ref > 1000 / cap * 0.6 || ts - (this._lastDraw || 0) >= 1000 / cap - ref / 2) { Render.draw(this._drawAcc); this._drawAcc = 0; this._lastDraw = ts; }
     UI.update(dt);
     if (this.showFps) { const f = $('#fps'); if (f) f.textContent = Render.stats.fps + ' fps'; }
     const f = $('#fps'); if (f) f.style.display = this.showFps ? 'block' : 'none';

@@ -625,11 +625,14 @@ const UI = {
       chk('Ciclo día / noche', Render.nightOn, v => { Render.nightOn = v; }),
       chk('Lluvia ocasional', Render.weatherOn, v => { Render.weatherOn = v; }),
       chk('Mostrar FPS', Game.showFps, v => Game.setShowFps(v)),
-      chk('Autoguardado cada año', Game.autosave, v => { Game.autosave = v; }),
-      chk('Limitar a 30 fps (ahorra batería)', !!Game.fpsCap, v => Game.setFpsCap(v ? 30 : 0)));
+      chk('Autoguardado cada año', Game.autosave, v => { Game.autosave = v; }));
     const qSel = el('select', {}, el('option', { value: 'high' }, 'Alta'), el('option', { value: 'medium' }, 'Media'), el('option', { value: 'low' }, 'Baja (equipos lentos / batería)'));
     qSel.value = Render.quality;
     qSel.addEventListener('change', () => { Render.setQuality(qSel.value); Snd.play('click'); });
+    const fSel = el('select', {}, el('option', { value: 'auto' }, 'Automático'), el('option', { value: '60' }, '60 fps'), el('option', { value: '30' }, '30 fps (ahorra batería)'), el('option', { value: '0' }, 'Sin límite'));
+    fSel.value = Game.fpsCap;
+    fSel.addEventListener('change', () => { Game.setFpsCap(fSel.value); Snd.play('click'); });
+    body.prepend(el('label', { class: 'fld' }, el('span', {}, 'Límite de fps'), fSel));
     body.prepend(el('label', { class: 'fld' }, el('span', {}, 'Calidad gráfica'), qSel));
     const de = document.documentElement;
     if (document.fullscreenEnabled || de.webkitRequestFullscreen) {
