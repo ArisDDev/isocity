@@ -633,7 +633,11 @@ const UI = {
     const fSel = el('select', {}, el('option', { value: 'auto' }, 'Automático'), el('option', { value: '60' }, '60 fps'), el('option', { value: '30' }, '30 fps (ahorra batería)'), el('option', { value: '0' }, 'Sin límite'));
     fSel.value = Game.fpsCap;
     fSel.addEventListener('change', () => { Game.setFpsCap(fSel.value); Snd.play('click'); });
+    const rSel = el('select', {}, el('option', { value: 'auto' }, 'Automático (WebGL)'), el('option', { value: '2d' }, 'Canvas 2D (compatibilidad)'));
+    rSel.value = Render.rendererPref;
+    rSel.addEventListener('change', () => { Render.setRenderer(rSel.value); Snd.play('click'); });
     body.prepend(el('label', { class: 'fld' }, el('span', {}, 'Límite de fps'), fSel));
+    body.prepend(el('label', { class: 'fld' }, el('span', {}, 'Motor de dibujo'), rSel));
     body.prepend(el('label', { class: 'fld' }, el('span', {}, 'Calidad gráfica'), qSel));
     const de = document.documentElement;
     if (document.fullscreenEnabled || de.webkitRequestFullscreen) {

@@ -26,6 +26,7 @@ const Render = {
     const k = this.glowCar = document.createElement('canvas'); k.width = k.height = 64;
     const kc = k.getContext('2d'); kc.globalAlpha = 0.42; kc.drawImage(g, 0, 0);               // faros de coche
     this.sLamp = { c: l }; this.sCar = { c: k };
+    this.initGL();
   },
   /** Calidad por defecto: alta en escritorio; media (o baja en equipos justos) en dispositivos táctiles. */
   defaultQuality() {
@@ -42,6 +43,7 @@ const Render = {
     this.dpr = dpr; this.wpx = window.innerWidth; this.hpx = window.innerHeight;
     this.canvas.width = Math.floor(this.wpx * dpr); this.canvas.height = Math.floor(this.hpx * dpr);
     this.canvas.style.width = this.wpx + 'px'; this.canvas.style.height = this.hpx + 'px';
+    if (this.resizeGL) this.resizeGL();
   },
 
   /* ---------- geometría ---------- */
@@ -146,6 +148,8 @@ const Render = {
     this.updateNight(); this.updateWeather(dt); this.updateBoats(dt);
     this._fpsAcc += dt; this._fpsN++;
     if (this._fpsAcc > 0.5) { this.stats.fps = Math.round(this._fpsN / this._fpsAcc); this._fpsAcc = 0; this._fpsN = 0; this.adapt(this.stats.fps); }
+    if (this.useGL()) { this.drawGL(dt, T0); return; }        // WebGL (glrender.js); el dibujo 2D de abajo es el respaldo
+    this.stats.gl = 0;
 
     // fondo
     ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
@@ -162,34 +166,75 @@ const Render = {
 
     this.drawSlab(ctx);
 
-    // rango de tiles visibles (coordenadas rotadas)
-    const a0 = (vx0 - TW) * 2 / TW, a1 = (vx1 + TW) * 2 / TW;
-    const b0 = (vy0 - TH - 110) * 2 / TH, b1 = (vy1 + TH) * 2 / TH;
-    const items = this.items; items.length = 0;
     const ov = this.overlay;
     ctx.imageSmoothingEnabled = true;
     const rot = Cam.rot, zl = zoom * dpr;
-    const LB = this.LODS[this.lodBias];
-    this.lodLevel = zl <= LB[0] ? 2 : zl <= LB[1] ? 1 : 0;
+    this.setLod(zl);
     const useCache = zoom < 0.7 && ov === 'none';
     const ts = this.tileSprites();
     if (useCache) this.drawGroundCache(ctx); else this.drawGroundChunks(ctx, ts);
     const showTrees = zoom >= 0.38;
+    const items = this.collect(ctx, ov, !useCache || showTrees, showTrees, null);
+    const [a0, a1, b0, b1] = this._rng;
 
-    if (!useCache || showTrees) for (let qy = 0; qy < N; qy++) {
+    const T1 = performance.now();
+    if (useCache) this.drawScorch(ctx, N, rot);       // con el suelo por bloques la ceniza ya va dentro de cada bloque
+    for (let n = 0; n < items.length; n++) {
+      const it = items[n];
+      switch (it.t) {
+        case 0: this.drawTree(ctx, it); break;
+        case 1: this.drawBuilding(ctx, it); break;
+        case 2: this.drawVehicle(ctx, it); break;
+        case 3: this.drawTornado(ctx, it); break;
+        case 4: this.drawBoat(ctx, it); break;
+      }
+    }
+
+    const T2 = performance.now();
+    this.drawFx(ctx, dt);
+    this.drawImpacts(ctx);
+    this.drawPreview(ctx);
+
+    // noche
+    const dark = this.night;
+    if (dark > 0.02) {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      const k = dark, r = Math.round(lerp(255, 66, k)), gg = Math.round(lerp(255, 84, k)), bb = Math.round(lerp(255, 150, k));
+      const warm = Math.sin(Math.min(1, k) * Math.PI) * 0.25;
+      ctx.globalCompositeOperation = 'multiply';
+      ctx.fillStyle = `rgb(${Math.round(r + (255 - r) * warm * 0.2)},${Math.round(gg - warm * 28)},${Math.round(bb - warm * 60)})`;
+      ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+      ctx.globalCompositeOperation = 'source-over';
+      this.drawLights(ctx, items, dark, shx, shy, a0, a1, b0, b1);
+    }
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    this.drawRain(ctx, dt);
+    // métricas suavizadas para el visor de FPS (tiempo de JS al emitir comandos, no de GPU)
+    const T3 = performance.now(), st = this.stats, k = 0.1;
+    st.ms = (st.ms || 0) * (1 - k) + (T3 - T0) * k; st.g = (st.g || 0) * (1 - k) + (T1 - T0) * k; st.i = (st.i || 0) * (1 - k) + (T2 - T1) * k; st.l = (st.l || 0) * (1 - k) + (T3 - T2) * k;
+    st.lb = this.lodBias; st.n = items.length; st.bub = this._bub; st.sm = this._sm; st.ch = this._cl ? this._cl.length : 0;
+  },
+
+  /** Recoge los objetos visibles (árboles, edificios, vehículos, barcos, tornado) ordenados de atrás a delante. */
+  collect(ctx, ov, loop, showTrees, onTile) {
+    const N = W.N, rot = Cam.rot, vw = this.view, vx0 = vw.vx0, vx1 = vw.vx1, vy0 = vw.vy0, vy1 = vw.vy1;
+    // rango de tiles visibles (coordenadas rotadas)
+    const a0 = (vx0 - TW) * 2 / TW, a1 = (vx1 + TW) * 2 / TW;
+    const b0 = (vy0 - TH - 110) * 2 / TH, b1 = (vy1 + TH) * 2 / TH;
+    this._rng = [a0, a1, b0, b1];
+    const items = this.items; items.length = 0;
+    if (loop) for (let qy = 0; qy < N; qy++) {
       const qxMin = Math.max(qy + a0, b0 - qy, 0) | 0, qxMax = Math.min(qy + a1, b1 - qy, N - 1);
       for (let qx = qxMin; qx <= qxMax; qx++) {
         let x, y;
         switch (rot) { case 0: x = qx; y = qy; break; case 1: x = qy; y = N - 1 - qx; break; case 2: x = N - 1 - qx; y = N - 1 - qy; break; default: x = N - 1 - qy; y = qx; }
         const i = y * N + x;
-        if (ov !== 'none') this.overlayTile(ctx, ov, x, y, i, (qx - qy) * TW / 2, (qx + qy) * TH / 2);
+        if (ov !== 'none') { if (onTile) onTile(x, y, i, (qx - qy) * TW / 2, (qx + qy) * TH / 2); else this.overlayTile(ctx, ov, x, y, i, (qx - qy) * TW / 2, (qx + qy) * TH / 2); }
         const tr = W.tree[i];
         if (showTrees && tr && !W.road[i]) items.push({ k: qx + qy + 1, t: 0, x: (qx - qy) * TW / 2 + (hash2(x, y, 9) - 0.5) * 12, y: (qx + qy) * TH / 2 + TH / 2 + (hash2(x, y, 10) - 0.5) * 6, tr, h: hash2(x, y, 11) });
       }
     }
 
-    const T1 = performance.now();
-    if (useCache) this.drawScorch(ctx, N, rot);       // con el suelo por bloques la ceniza ya va dentro de cada bloque
     // edificios
     for (const b of W.buildings.values()) {
       let ax, ay, bx, by; const X0 = b.x, Y0 = b.y, X1 = b.x + b.w, Y1 = b.y + b.h;
@@ -235,40 +280,11 @@ const Render = {
     if (tor) { const [qx, qy] = this.rotPt(tor.x, tor.y); items.push({ k: qx + qy, t: 3, qx, qy, tor }); }
 
     items.sort((p, q) => p.k - q.k);
-    for (let n = 0; n < items.length; n++) {
-      const it = items[n];
-      switch (it.t) {
-        case 0: this.drawTree(ctx, it); break;
-        case 1: this.drawBuilding(ctx, it); break;
-        case 2: this.drawVehicle(ctx, it); break;
-        case 3: this.drawTornado(ctx, it); break;
-        case 4: this.drawBoat(ctx, it); break;
-      }
-    }
-
-    const T2 = performance.now();
-    this.drawFx(ctx, dt);
-    this.drawImpacts(ctx);
-    this.drawPreview(ctx);
-
-    // noche
-    const dark = this.night;
-    if (dark > 0.02) {
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      const k = dark, r = Math.round(lerp(255, 66, k)), gg = Math.round(lerp(255, 84, k)), bb = Math.round(lerp(255, 150, k));
-      const warm = Math.sin(Math.min(1, k) * Math.PI) * 0.25;
-      ctx.globalCompositeOperation = 'multiply';
-      ctx.fillStyle = `rgb(${Math.round(r + (255 - r) * warm * 0.2)},${Math.round(gg - warm * 28)},${Math.round(bb - warm * 60)})`;
-      ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-      ctx.globalCompositeOperation = 'source-over';
-      this.drawLights(ctx, items, dark, shx, shy, a0, a1, b0, b1);
-    }
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    this.drawRain(ctx, dt);
-    // métricas suavizadas para el visor de FPS (tiempo de JS al emitir comandos, no de GPU)
-    const T3 = performance.now(), st = this.stats, k = 0.1;
-    st.ms = (st.ms || 0) * (1 - k) + (T3 - T0) * k; st.g = (st.g || 0) * (1 - k) + (T1 - T0) * k; st.i = (st.i || 0) * (1 - k) + (T2 - T1) * k; st.l = (st.l || 0) * (1 - k) + (T3 - T2) * k;
-    st.lb = this.lodBias; st.n = items.length; st.bub = this._bub; st.sm = this._sm; st.ch = this._cl ? this._cl.length : 0;
+    return items;
+  },
+  setLod(zl) {
+    const LB = this.LODS[this.lodBias];
+    this.lodLevel = zl <= LB[0] ? 2 : zl <= LB[1] ? 1 : 0;
   },
 
   /* ---------- suelo ---------- */
@@ -525,17 +541,11 @@ const Render = {
   },
 
   /* ---------- base del mapa ---------- */
-  drawSlab(ctx) {
-    const N = W.N, T = 20;
+  /** Emite los polígonos de la base del mapa como (color, [x0,y0,x1,y1,x2,y2,x3,y3]); solo los lados visibles. */
+  slabPolys(emit) {
+    const N = W.N, T = 20, vw = this.view, mg = 6;
     const A = this.proj(0, 0), B = this.proj(N, 0), C = this.proj(N, N), D = this.proj(0, N);
-    // plataforma
-    ctx.fillStyle = '#2f7fc2';
-    ctx.beginPath(); ctx.moveTo(A[0], A[1]); ctx.lineTo(B[0], B[1]); ctx.lineTo(C[0], C[1]); ctx.lineTo(D[0], D[1]); ctx.closePath(); ctx.fill();
-    const face = (x0, y0, x1, y1, left) => {
-      const [tx, ty] = this.qToTile(left ? x0 : x1, left ? N - 1 : y1);
-      return null;
-    };
-    const vw = this.view, mg = 6;
+    emit('#2f7fc2', [A[0], A[1], B[0], B[1], C[0], C[1], D[0], D[1]]);
     for (let k = 0; k < N; k++) {
       // cara izquierda (qy = N-1) y derecha (qx = N-1); solo las que caen dentro de la vista
       const lx0 = (k - N) * TW / 2, ly0 = (k + N) * TH / 2, rx1 = (N - k) * TW / 2, ry0 = (N + k) * TH / 2;
@@ -544,18 +554,21 @@ const Render = {
       if (!visL && !visR) continue;
       const [lx, ly] = this.qToTile(k, N - 1), [rx, ry] = this.qToTile(N - 1, k);
       const lt = W.ter[ly * N + lx], rt = W.ter[ry * N + rx];
-      let p0 = [(k - N) * TW / 2, (k + N) * TH / 2], p1 = [(k + 1 - N) * TW / 2, (k + 1 + N) * TH / 2];
+      let p0x = (k - N) * TW / 2, p0y = (k + N) * TH / 2, p1x = (k + 1 - N) * TW / 2, p1y = (k + 1 + N) * TH / 2;
       if (visL) {
-      ctx.fillStyle = lt === TER.WATER ? '#2373b3' : '#7a5a3c';
-      ctx.beginPath(); ctx.moveTo(p0[0], p0[1]); ctx.lineTo(p1[0], p1[1]); ctx.lineTo(p1[0], p1[1] + T); ctx.lineTo(p0[0], p0[1] + T); ctx.closePath(); ctx.fill();
-      if (lt !== TER.WATER) { ctx.fillStyle = lt === TER.SAND ? '#d9c58c' : '#58963f'; ctx.beginPath(); ctx.moveTo(p0[0], p0[1]); ctx.lineTo(p1[0], p1[1]); ctx.lineTo(p1[0], p1[1] + 4); ctx.lineTo(p0[0], p0[1] + 4); ctx.closePath(); ctx.fill(); }
+        emit(lt === TER.WATER ? '#2373b3' : '#7a5a3c', [p0x, p0y, p1x, p1y, p1x, p1y + T, p0x, p0y + T]);
+        if (lt !== TER.WATER) emit(lt === TER.SAND ? '#d9c58c' : '#58963f', [p0x, p0y, p1x, p1y, p1x, p1y + 4, p0x, p0y + 4]);
       }
       if (!visR) continue;
-      p0 = [(N - k) * TW / 2, (N + k) * TH / 2]; p1 = [(N - k - 1) * TW / 2, (N + k + 1) * TH / 2];
-      ctx.fillStyle = rt === TER.WATER ? '#185a92' : '#5d442c';
-      ctx.beginPath(); ctx.moveTo(p0[0], p0[1]); ctx.lineTo(p1[0], p1[1]); ctx.lineTo(p1[0], p1[1] + T); ctx.lineTo(p0[0], p0[1] + T); ctx.closePath(); ctx.fill();
-      if (rt !== TER.WATER) { ctx.fillStyle = rt === TER.SAND ? '#c4b177' : '#477f33'; ctx.beginPath(); ctx.moveTo(p0[0], p0[1]); ctx.lineTo(p1[0], p1[1]); ctx.lineTo(p1[0], p1[1] + 4); ctx.lineTo(p0[0], p0[1] + 4); ctx.closePath(); ctx.fill(); }
+      p0x = (N - k) * TW / 2; p0y = (N + k) * TH / 2; p1x = (N - k - 1) * TW / 2; p1y = (N + k + 1) * TH / 2;
+      emit(rt === TER.WATER ? '#185a92' : '#5d442c', [p0x, p0y, p1x, p1y, p1x, p1y + T, p0x, p0y + T]);
+      if (rt !== TER.WATER) emit(rt === TER.SAND ? '#c4b177' : '#477f33', [p0x, p0y, p1x, p1y, p1x, p1y + 4, p0x, p0y + 4]);
     }
+  },
+  drawSlab(ctx) {
+    this.slabPolys((col, p) => {
+      ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(p[0], p[1]); ctx.lineTo(p[2], p[3]); ctx.lineTo(p[4], p[5]); ctx.lineTo(p[6], p[7]); ctx.closePath(); ctx.fill();
+    });
   },
 
   /* ---------- superposiciones de datos ---------- */
@@ -564,7 +577,8 @@ const Render = {
     const r = v < 0.5 ? lerp(60, 250, v * 2) : 250, g = v < 0.5 ? 210 : lerp(210, 60, (v - 0.5) * 2);
     return [Math.round(r), Math.round(g), 70];
   },
-  overlayTile(ctx, ov, x, y, i, sx, sy) {
+  /** Color [r,g,b,a] de la vista de datos para una casilla (o null). */
+  overlayColor(ov, i) {
     let col = null, a = 0.5;
     const b = W.bid[i] ? W.buildings.get(W.bid[i]) : null;
     switch (ov) {
@@ -579,9 +593,12 @@ const Render = {
         const v = W.cov[ov][i]; if (v > 0.02) { col = [60, 150 + v * 90, 255]; a = 0.15 + v * 0.55; } break;
       }
     }
-    if (!col) return;
-    ctx.globalAlpha = a;
-    ctx.fillStyle = `rgb(${col[0]},${col[1]},${col[2]})`;
+    return col ? [col[0], col[1], col[2], a] : null;
+  },
+  overlayTile(ctx, ov, x, y, i, sx, sy) {
+    const c = this.overlayColor(ov, i); if (!c) return;
+    ctx.globalAlpha = c[3];
+    ctx.fillStyle = `rgb(${c[0]},${c[1]},${c[2]})`;
     ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx + TW / 2, sy + TH / 2); ctx.lineTo(sx, sy + TH); ctx.lineTo(sx - TW / 2, sy + TH / 2); ctx.closePath(); ctx.fill();
     ctx.globalAlpha = 1;
   },
@@ -652,10 +669,10 @@ const Render = {
   drawTree(ctx, it) {
     this.sprScaled(ctx, this.treeSpr(it.tr, it.h), it.x, it.y, 0.85 + it.h * 0.3);
   },
-  drawBuilding(ctx, it) {
+  drawBuilding(ctx, it, noSprite) {
     const b = it.b, e = it.e, t = this.time;
     ctx.globalAlpha = 1;
-    this.spr(ctx, e.base, it.x, it.y);
+    if (!noSprite) this.spr(ctx, e.base, it.x, it.y);
     const A = Sprites.ANCH[b.def ? b.key : b.key + b.lvl];
     const P = Sprites.P;
     if (A && Cam.zoom > 0.4) {
@@ -735,10 +752,13 @@ const Render = {
       }
     }
   },
-  drawVehicle(ctx, it) {
+  vehSprite(it) {
+    const v = it.v, o = it.alongX ? 1 : 0, vs = v._sp || (v._sp = [null, null]);
+    return vs[o] || (vs[o] = Sprites.vehicle(v.kind, v.color, it.alongX));
+  },
+  drawVehicle(ctx, it, noSprite) {
     const v = it.v, sx = (it.qx - it.qy) * TW / 2, sy = (it.qx + it.qy) * TH / 2;
-    const o = it.alongX ? 1 : 0, vs = v._sp || (v._sp = [null, null]);
-    this.spr(ctx, vs[o] || (vs[o] = Sprites.vehicle(v.kind, v.color, it.alongX)), sx, sy);
+    if (!noSprite) this.spr(ctx, this.vehSprite(it), sx, sy);
     if (v.kind === 'fire') {
       ctx.fillStyle = Math.floor(this.time * 6) % 2 ? '#ff4040' : '#4080ff'; ctx.beginPath(); ctx.arc(sx, sy - 8.5, 1.8, 0, 7); ctx.fill();
     }

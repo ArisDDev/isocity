@@ -16,7 +16,7 @@ La interfaz se adapta sola a pantallas pequeñas (vertical y horizontal) y funci
 - **Dos dedos**: pellizco para el zoom y arrastre para mover el mapa.
 - Botones laterales para rotar, zoom y abrir el minimapa con las vistas de datos; la velocidad se cambia con un solo botón; Presupuesto, Estadísticas, etc. están en el menú ☰.
 - Para jugar en el teléfono: `node serve.js` en el PC y abre en el móvil (misma Wi-Fi) la dirección que muestra la consola, o copia `IsoCity-standalone.html` al dispositivo. En Opciones hay modo pantalla completa.
-- **Rendimiento:** en Opciones puedes elegir la *Calidad gráfica* (Alta / Media / Baja) y limitar a 30 fps para ahorrar batería. En móviles se elige sola (media o baja según el equipo).
+- **Rendimiento:** el juego se dibuja con **WebGL2** (atlas de sprites, prueba de profundidad y MSAA) y, si no está disponible, con Canvas 2D; se puede cambiar en Opciones → *Motor de dibujo*. También hay *Calidad gráfica* (Alta / Media / Baja), *Límite de fps* y un visor de FPS con detalles de diagnóstico. En móviles la calidad se elige sola y, si no se sostienen los fps, se baja la resolución de los sprites automáticamente.
 
 ## APK de Android
 
@@ -71,6 +71,7 @@ js/sprites.js         sprites isométricos procedurales
 js/world.js           mapa y generación de terreno
 js/sim.js             simulación (economía, crecimiento, tráfico, desastres)
 js/render.js          renderizado isométrico, cámara y efectos
+js/glrender.js        dibujo WebGL2: atlas de sprites, suelo, objetos con profundidad y pase nocturno (la capa 2D lleva lo vectorial)
 js/audio.js           sonido sintetizado (WebAudio)
 js/ui.js              HUD, ventanas, minimapa
 js/main.js            bucle principal, entrada y guardado

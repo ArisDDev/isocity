@@ -51,7 +51,7 @@ const Game = {
       if (this.showFps) {
         const q = Render.stats;
         let t = q.fps + ' fps';
-        if (this.fpsDetail) t += '\nJS ' + (q.ms || 0).toFixed(1) + ' ms · suelo ' + (q.g || 0).toFixed(1) + ' · objetos ' + (q.i || 0).toFixed(1) + ' · luz ' + (q.l || 0).toFixed(1) + '\n' + (q.n || 0) + ' obj · ' + (q.bub || 0) + ' avisos · ' + (q.sm || 0) + ' humos · ' + (q.ch || 0) + ' bloques · detalle -' + (q.lb || 0);
+        if (this.fpsDetail) t += '\nJS ' + (q.ms || 0).toFixed(1) + ' ms · suelo ' + (q.g || 0).toFixed(1) + ' · objetos ' + (q.i || 0).toFixed(1) + ' · luz ' + (q.l || 0).toFixed(1) + '\n' + (q.n || 0) + ' obj · ' + (q.bub || 0) + ' avisos · ' + (q.sm || 0) + ' humos · ' + (q.ch || 0) + (q.gl ? ' págs. atlas' : ' bloques') + ' · detalle -' + (q.lb || 0) + ' · ' + (q.gl ? 'WebGL' : '2D');
         if (t !== this._fpsTxt) fe.textContent = this._fpsTxt = t;       // solo se toca el DOM si el texto cambia
       }
       const d = this.showFps ? 'block' : 'none'; if (d !== this._fpsDisp) { fe.style.display = this._fpsDisp = d; }
