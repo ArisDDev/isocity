@@ -625,6 +625,7 @@ const UI = {
       chk('Ciclo día / noche', Render.nightOn, v => { Render.nightOn = v; }),
       chk('Lluvia ocasional', Render.weatherOn, v => { Render.weatherOn = v; }),
       chk('Mostrar FPS', Game.showFps, v => Game.setShowFps(v)),
+      chk('Detalles de rendimiento (diagnóstico)', Game.fpsDetail, v => Game.setFpsDetail(v)),
       chk('Autoguardado cada año', Game.autosave, v => { Game.autosave = v; }));
     const qSel = el('select', {}, el('option', { value: 'high' }, 'Alta'), el('option', { value: 'medium' }, 'Media'), el('option', { value: 'low' }, 'Baja (equipos lentos / batería)'));
     qSel.value = Render.quality;

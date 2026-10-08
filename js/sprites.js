@@ -835,6 +835,27 @@ const Sprites = (() => {
     return e;
   }
 
+  /* ---------- atlas de sprites ----------
+   * Dibujar cientos de sprites que viven cada uno en su propio lienzo obliga a la GPU a cambiar de textura en cada llamada
+   * (en el móvil ~0,1 ms por llamada). Los sprites se copian a unas pocas páginas grandes y se dibujan con un rectángulo
+   * de origen: las llamadas consecutivas comparten textura y se agrupan en una sola. La copia se hace al primer uso. */
+  const PG = 2048, GUT = 2, pages = []; let cur = null, ax = 0, ay = 0, rowH = 0;
+  function newPage() { const cv = document.createElement('canvas'); cv.width = cv.height = PG; cur = { cv, g: cv.getContext('2d') }; pages.push(cur); ax = ay = rowH = 0; }
+  /** Devuelve {cv,x,y,w,h} con el sitio del sprite en el atlas (o null si no cabe: se dibujará desde su propio lienzo). */
+  function pack(s) {
+    if (s.a !== undefined) return s.a;
+    const w = s.c.width, h = s.c.height, bw = w + GUT * 2, bh = h + GUT * 2;
+    if (bw > PG || bh > PG) return (s.a = null);
+    if (!cur) newPage();
+    if (ax + bw > PG) { ax = 0; ay += rowH; rowH = 0; }
+    if (ay + bh > PG) { if (pages.length >= 8) return (s.a = null); newPage(); }       // tope de memoria (~130 MB de texturas)
+    cur.g.drawImage(s.c, ax + GUT, ay + GUT);
+    const a = { cv: cur.cv, x: ax + GUT, y: ay + GUT, w, h };
+    ax += bw; rowH = Math.max(rowH, bh);
+    return (s.a = a);
+  }
+  function atlasInfo() { return { pages: pages.length, px: pages.length * PG * PG }; }
+
   /** Silueta negra opaca de un sprite (para ocultar luces de lo que queda detrás). */
   function sil(e) {
     if (e.sil) return e.sil;
@@ -911,6 +932,6 @@ const Sprites = (() => {
   return {
     P, mat, box, poly, flat, cyl, dome, ell, treeShape, B, H, ANCH,
     groundTile, waterTile, rippleTile, zoneTile, plainDiamond, roadTile, treeSprite,
-    forBuilding, lights, forDef, zoneSample, icon, shade, sil, lod, nightMask, vehicle,
+    forBuilding, lights, forDef, zoneSample, icon, shade, sil, lod, nightMask, vehicle, pack, atlasInfo,
   };
 })();

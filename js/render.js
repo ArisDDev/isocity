@@ -25,6 +25,7 @@ const Render = {
     const lc = l.getContext('2d'); lc.globalAlpha = 0.75; lc.drawImage(g, 0, 0);
     const k = this.glowCar = document.createElement('canvas'); k.width = k.height = 64;
     const kc = k.getContext('2d'); kc.globalAlpha = 0.42; kc.drawImage(g, 0, 0);               // faros de coche
+    this.sLamp = { c: l }; this.sCar = { c: k };
   },
   /** Calidad por defecto: alta en escritorio; media (o baja en equipos justos) en dispositivos táctiles. */
   defaultQuality() {
@@ -85,8 +86,9 @@ const Render = {
   spr(ctx, s, x, y) {
     const L = this.lodLevel;
     if (L) s = Sprites.lod(s, L);
-    const f = SPR * (s.k || 1);
-    ctx.drawImage(s.c, x - s.ox / f, y - s.oy / f, s.dw || s.c.width / SPR, s.dh || s.c.height / SPR);
+    const f = SPR * (s.k || 1), a = s.a === undefined ? Sprites.pack(s) : s.a;
+    if (a) ctx.drawImage(a.cv, a.x, a.y, a.w, a.h, x - s.ox / f, y - s.oy / f, s.dw || a.w / SPR, s.dh || a.h / SPR);
+    else ctx.drawImage(s.c, x - s.ox / f, y - s.oy / f, s.dw || s.c.width / SPR, s.dh || s.c.height / SPR);
   },
   treeSpr(tr, h) {
     const row = this._tr || (this._tr = [[], [], [], [], []]), v = (h * 4) | 0;
@@ -96,8 +98,9 @@ const Render = {
   sprScaled(ctx, s, x, y, sc) {
     const L = this.lodLevel;
     if (L) s = Sprites.lod(s, L);
-    const f = SPR * (s.k || 1);
-    ctx.drawImage(s.c, x - s.ox / f * sc, y - s.oy / f * sc, (s.dw || s.c.width / SPR) * sc, (s.dh || s.c.height / SPR) * sc);
+    const f = SPR * (s.k || 1), a = s.a === undefined ? Sprites.pack(s) : s.a;
+    if (a) ctx.drawImage(a.cv, a.x, a.y, a.w, a.h, x - s.ox / f * sc, y - s.oy / f * sc, (s.dw || a.w / SPR) * sc, (s.dh || a.h / SPR) * sc);
+    else ctx.drawImage(s.c, x - s.ox / f * sc, y - s.oy / f * sc, (s.dw || s.c.width / SPR) * sc, (s.dh || s.c.height / SPR) * sc);
   },
 
   /* ---------- ciclo día/noche ---------- */
@@ -110,6 +113,7 @@ const Render = {
 
   /* ---------- dibujo principal ---------- */
   draw(dt) {
+    const T0 = performance.now(); this._bub = 0; this._sm = 0;
     const ctx = this.ctx, N = W.N, zoom = Cam.zoom, dpr = this.dpr;
     this.time += dt;
     this.updateNight(); this.updateWeather(dt); this.updateBoats(dt);
@@ -156,6 +160,7 @@ const Render = {
       }
     }
 
+    const T1 = performance.now();
     if (useCache) this.drawScorch(ctx, N, rot);       // con el suelo por bloques la ceniza ya va dentro de cada bloque
     // edificios
     for (const b of W.buildings.values()) {
@@ -213,6 +218,7 @@ const Render = {
       }
     }
 
+    const T2 = performance.now();
     this.drawFx(ctx, dt);
     this.drawImpacts(ctx);
     this.drawPreview(ctx);
@@ -231,6 +237,10 @@ const Render = {
     }
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     this.drawRain(ctx, dt);
+    // métricas suavizadas para el visor de FPS (tiempo de JS al emitir comandos, no de GPU)
+    const T3 = performance.now(), st = this.stats, k = 0.1;
+    st.ms = (st.ms || 0) * (1 - k) + (T3 - T0) * k; st.g = (st.g || 0) * (1 - k) + (T1 - T0) * k; st.i = (st.i || 0) * (1 - k) + (T2 - T1) * k; st.l = (st.l || 0) * (1 - k) + (T3 - T2) * k;
+    st.n = items.length; st.bub = this._bub; st.sm = this._sm; st.ch = this._cl ? this._cl.length : 0;
   },
 
   /* ---------- suelo ---------- */
@@ -472,10 +482,12 @@ const Render = {
       } else if (it.t === 0) {
         this.sprScaled(lc, Sprites.sil(this.treeSpr(it.tr, it.h)), it.x, it.y, 0.85 + it.h * 0.3);
       } else if (it.t === 9) {
-        lc.drawImage(this.glowLamp, it.x - 15, it.y - 14, 30, 30);
+        const a = this.sLamp.a || Sprites.pack(this.sLamp);
+        lc.drawImage(a.cv, a.x, a.y, a.w, a.h, it.x - 15, it.y - 14, 30, 30);
       } else if (it.t === 2 && heads) {                               // faros del coche
         const sx = (it.qx - it.qy) * TW / 2, sy = (it.qx + it.qy) * TH / 2;
-        lc.drawImage(this.glowCar, sx - 9, sy - 12, 18, 18);
+        const a = this.sCar.a || Sprites.pack(this.sCar);
+        lc.drawImage(a.cv, a.x, a.y, a.w, a.h, sx - 9, sy - 12, 18, 18);
       }
     }
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -621,6 +633,7 @@ const Render = {
     if (A && Cam.zoom > 0.4) {
       if (A.smoke && b.on && this.quality !== 'low') {
         for (const [u, v, z] of A.smoke) {
+          this._sm++;
           const [px, py] = P(u, v, z);
           for (let k = 0; k < 4; k++) {
             const ph = (t * 0.22 + k / 4 + b.id * 0.37) % 1;
@@ -685,6 +698,7 @@ const Render = {
       let ic = null;
       if (b.acc < 0) ic = '🚧'; else if (!b.pw) ic = '⚡'; else if (!b.wt) ic = '💧';
       if (ic) {
+        this._bub++;
         const bx = it.x + (b.w - b.h) * TW / 4, by = it.y - it.hgt * 0.55 - 6 + Math.sin(t * 3 + b.id) * 2;
         ctx.fillStyle = 'rgba(20,24,34,0.85)'; ctx.beginPath(); ctx.arc(bx, by, 9, 0, 7); ctx.fill();
         ctx.strokeStyle = '#ffc857'; ctx.lineWidth = 1.2; ctx.stroke();

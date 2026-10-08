@@ -3,9 +3,10 @@
    Juego: bucle principal, entrada de ratón/teclado, guardado y pantalla de título
    ========================================================================== */
 const Game = {
-  mode: 'title', last: 0, showFps: false, autosave: true, fpsCap: 'auto', _rafMs: 0, _prevTs: 0,
+  mode: 'title', last: 0, showFps: false, fpsDetail: false, autosave: true, fpsCap: 'auto', _rafMs: 0, _prevTs: 0,
   keys: {}, ptrs: new Map(), pan: null, drag: null, pinch: null, hover: null, spaceDown: false, _driftT: 0,
 
+  setFpsDetail(v) { this.fpsDetail = v; this._fpsTxt = null; try { localStorage.setItem('isocity_fpsdetail', v ? '1' : '0'); } catch (e) { } },
   setShowFps(v) { this.showFps = v; try { localStorage.setItem('isocity_showfps', v ? '1' : '0'); } catch (e) { } },
   /** Límite de fps: 'auto' (60 en pantallas táctiles, 30 con calidad baja), '30', '60' o '0' (sin límite). Solo se aplica si la pantalla refresca bastante más rápido que el límite. */
   setFpsCap(n) { this.fpsCap = String(n); try { localStorage.setItem('isocity_fpscap', this.fpsCap); } catch (e) { } },
@@ -16,7 +17,7 @@ const Game = {
   init() {
     Render.init($('#view'));
     try { const f = localStorage.getItem('isocity_fpscap'); this.fpsCap = f === '0' || f === '30' || f === '60' ? f : 'auto'; } catch (e) { this.fpsCap = 'auto'; }
-    try { this.showFps = localStorage.getItem('isocity_showfps') === '1'; } catch (e) { }
+    try { this.showFps = localStorage.getItem('isocity_showfps') === '1'; this.fpsDetail = localStorage.getItem('isocity_fpsdetail') === '1'; } catch (e) { }
     UI.init();
     this.bindInput();
     Sim.onMonth = () => { if (this.mode === 'play' && Sim.S.month === 11 && this.autosave) this.saveSlot(0, true); };
@@ -45,8 +46,16 @@ const Game = {
     // solo se limita si la pantalla va claramente más rápido (p. ej. 120 Hz con límite de 60); con 60/90 Hz se dibuja cada fotograma
     if (!cap || ref > 1000 / cap * 0.6 || ts - (this._lastDraw || 0) >= 1000 / cap - ref / 2) { Render.draw(this._drawAcc); this._drawAcc = 0; this._lastDraw = ts; }
     UI.update(dt);
-    if (this.showFps) { const f = $('#fps'); if (f) f.textContent = Render.stats.fps + ' fps'; }
-    const f = $('#fps'); if (f) f.style.display = this.showFps ? 'block' : 'none';
+    const fe = $('#fps');
+    if (fe) {
+      if (this.showFps) {
+        const q = Render.stats;
+        let t = q.fps + ' fps';
+        if (this.fpsDetail) t += '\nJS ' + (q.ms || 0).toFixed(1) + ' ms · suelo ' + (q.g || 0).toFixed(1) + ' · objetos ' + (q.i || 0).toFixed(1) + ' · luz ' + (q.l || 0).toFixed(1) + '\n' + (q.n || 0) + ' obj · ' + (q.bub || 0) + ' avisos · ' + (q.sm || 0) + ' humos · ' + (q.ch || 0) + ' bloques';
+        if (t !== this._fpsTxt) fe.textContent = this._fpsTxt = t;       // solo se toca el DOM si el texto cambia
+      }
+      const d = this.showFps ? 'block' : 'none'; if (d !== this._fpsDisp) { fe.style.display = this._fpsDisp = d; }
+    }
   },
 
   /* ---------- nueva partida / título ---------- */
