@@ -841,9 +841,10 @@ const Sprites = (() => {
    * de origen: las llamadas consecutivas comparten textura y se agrupan en una sola. La copia se hace al primer uso. */
   const PG = 2048, GUT = 2, pages = []; let cur = null, ax = 0, ay = 0, rowH = 0;
   function newPage() { const cv = document.createElement('canvas'); cv.width = cv.height = PG; cur = { cv, g: cv.getContext('2d') }; pages.push(cur); ax = ay = rowH = 0; }
-  /** Devuelve {cv,x,y,w,h} con el sitio del sprite en el atlas (o null si no cabe: se dibujará desde su propio lienzo). */
-  function pack(s) {
+  /** Devuelve {cv,x,y,w,h} con el sitio del sprite en el atlas (o null: se dibujará desde su propio lienzo). Solo entran los sprites reducidos (LOD) y los forzados. */
+  function pack(s, force) {
     if (s.a !== undefined) return s.a;
+    if (!s.k && !force) return (s.a = null);        // resolución completa: desde su lienzo (medido en móvil: ~2x más rápido que desde el atlas)
     const w = s.c.width, h = s.c.height, bw = w + GUT * 2, bh = h + GUT * 2;
     if (bw > PG || bh > PG) return (s.a = null);
     if (!cur) newPage();

@@ -8,7 +8,7 @@ const Render = {
   canvas: null, ctx: null, wpx: 800, hpx: 600, dpr: 1,
   time: 0, fx: [], overlay: 'none', night: 0, nightOn: true,
   preview: null, selected: null, hoverTile: null,
-  items: [], lodLevel: 0, quality: 'high', stats: { fps: 0 }, _fpsAcc: 0, _fpsN: 0, CH: 8, _ch: null, _cb: [0, 0, 0, 0],
+  items: [], lodLevel: 0, quality: 'high', stats: { fps: 0 }, _fpsAcc: 0, _fpsN: 0, CH: 8, _ch: null, _cb: [0, 0, 0, 0], lodBias: 0, _ad: null,
   boats: [], _boatKey: '', rain: 0, raining: false, rainT: 60, weatherOn: true, drops: null,
 
   init(canvas) {
@@ -103,6 +103,33 @@ const Render = {
     else ctx.drawImage(s.c, x - s.ox / f * sc, y - s.oy / f * sc, (s.dw || s.c.width / SPR) * sc, (s.dh || s.c.height / SPR) * sc);
   },
 
+  /* ---------- detalle automático ---------- */
+  /** Umbrales (px de pantalla por px de mundo) bajo los que se usa el LOD 2 y el LOD 1, según el nivel de reducción automática. */
+  LODS: [[0.5, 1.0], [0.8, 1.6], [1.2, 2.6], [1.8, 4.6]],
+  /**
+   * Cada 0,5 s recibe los fps medidos. Si el equipo no sostiene el objetivo durante 2 s se pasa a sprites de menor resolución
+   * (a la GPU del móvil le cuesta mucho el volumen de texeles que se muestrean); si va sobrado durante 10 s se vuelve a subir,
+   * y si subir hace que vuelva a fallar, no se vuelve a intentar durante 5 minutos.
+   */
+  adapt(fps) {
+    if (Game.mode !== 'play') return;
+    const a = this._ad || (this._ad = { low: 0, high: 0, wait: 0, lock: 0, t: 0, lastUp: -999 });
+    a.t++;
+    if (a.wait > 0) { a.wait--; return; }
+    if (a.lock > 0) a.lock--;
+    const cap = Game.capNow(), tgt = cap > 0 && cap < 60 ? cap : 60;
+    if (fps < tgt * 0.66) {
+      a.high = 0;
+      if (++a.low >= 4 && this.lodBias < this.LODS.length - 1) {
+        this.lodBias++; a.low = 0; a.wait = 6;
+        if (a.t - a.lastUp < 40) a.lock = 600;
+      }
+    } else if (fps >= tgt * 0.95) {
+      a.low = 0;
+      if (++a.high >= 20 && this.lodBias > 0 && a.lock <= 0) { this.lodBias--; a.high = 0; a.wait = 6; a.lastUp = a.t; }
+    } else { a.low = 0; a.high = 0; }
+  },
+
   /* ---------- ciclo día/noche ---------- */
   updateNight() {
     if (!this.nightOn) { this.night = 0; return; }
@@ -118,7 +145,7 @@ const Render = {
     this.time += dt;
     this.updateNight(); this.updateWeather(dt); this.updateBoats(dt);
     this._fpsAcc += dt; this._fpsN++;
-    if (this._fpsAcc > 0.5) { this.stats.fps = Math.round(this._fpsN / this._fpsAcc); this._fpsAcc = 0; this._fpsN = 0; }
+    if (this._fpsAcc > 0.5) { this.stats.fps = Math.round(this._fpsN / this._fpsAcc); this._fpsAcc = 0; this._fpsN = 0; this.adapt(this.stats.fps); }
 
     // fondo
     ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
@@ -142,7 +169,8 @@ const Render = {
     const ov = this.overlay;
     ctx.imageSmoothingEnabled = true;
     const rot = Cam.rot, zl = zoom * dpr;
-    this.lodLevel = zl <= 0.5 ? 2 : zl <= 1.0 ? 1 : 0;
+    const LB = this.LODS[this.lodBias];
+    this.lodLevel = zl <= LB[0] ? 2 : zl <= LB[1] ? 1 : 0;
     const useCache = zoom < 0.7 && ov === 'none';
     const ts = this.tileSprites();
     if (useCache) this.drawGroundCache(ctx); else this.drawGroundChunks(ctx, ts);
@@ -240,7 +268,7 @@ const Render = {
     // métricas suavizadas para el visor de FPS (tiempo de JS al emitir comandos, no de GPU)
     const T3 = performance.now(), st = this.stats, k = 0.1;
     st.ms = (st.ms || 0) * (1 - k) + (T3 - T0) * k; st.g = (st.g || 0) * (1 - k) + (T1 - T0) * k; st.i = (st.i || 0) * (1 - k) + (T2 - T1) * k; st.l = (st.l || 0) * (1 - k) + (T3 - T2) * k;
-    st.n = items.length; st.bub = this._bub; st.sm = this._sm; st.ch = this._cl ? this._cl.length : 0;
+    st.lb = this.lodBias; st.n = items.length; st.bub = this._bub; st.sm = this._sm; st.ch = this._cl ? this._cl.length : 0;
   },
 
   /* ---------- suelo ---------- */
@@ -482,12 +510,12 @@ const Render = {
       } else if (it.t === 0) {
         this.sprScaled(lc, Sprites.sil(this.treeSpr(it.tr, it.h)), it.x, it.y, 0.85 + it.h * 0.3);
       } else if (it.t === 9) {
-        const a = this.sLamp.a || Sprites.pack(this.sLamp);
-        lc.drawImage(a.cv, a.x, a.y, a.w, a.h, it.x - 15, it.y - 14, 30, 30);
+        const a = this.lodLevel ? (this.sLamp.a || Sprites.pack(this.sLamp, true)) : null;
+        if (a) lc.drawImage(a.cv, a.x, a.y, a.w, a.h, it.x - 15, it.y - 14, 30, 30); else lc.drawImage(this.glowLamp, it.x - 15, it.y - 14, 30, 30);
       } else if (it.t === 2 && heads) {                               // faros del coche
         const sx = (it.qx - it.qy) * TW / 2, sy = (it.qx + it.qy) * TH / 2;
-        const a = this.sCar.a || Sprites.pack(this.sCar);
-        lc.drawImage(a.cv, a.x, a.y, a.w, a.h, sx - 9, sy - 12, 18, 18);
+        const a = this.lodLevel ? (this.sCar.a || Sprites.pack(this.sCar, true)) : null;
+        if (a) lc.drawImage(a.cv, a.x, a.y, a.w, a.h, sx - 9, sy - 12, 18, 18); else lc.drawImage(this.glowCar, sx - 9, sy - 12, 18, 18);
       }
     }
     ctx.setTransform(1, 0, 0, 1, 0, 0);
