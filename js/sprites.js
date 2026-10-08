@@ -25,15 +25,13 @@ const Sprites = (() => {
 
   /* ---------- primitivas ---------- */
   function poly(c, pts, fill, stroke, lw) {
-    if (lightMode) return;
     c.beginPath(); c.moveTo(pts[0][0], pts[0][1]);
     for (let i = 1; i < pts.length; i++) c.lineTo(pts[i][0], pts[i][1]);
     c.closePath();
     if (fill) { c.fillStyle = fill; c.fill(); }
-    if (stroke) { c.strokeStyle = stroke; c.lineWidth = lw || 0.7; c.lineJoin = 'round'; c.stroke(); }
+    if (stroke && !lightMode) { c.strokeStyle = stroke; c.lineWidth = lw || 0.7; c.lineJoin = 'round'; c.stroke(); }
   }
   function box(c, u0, v0, u1, v1, z0, z1, m) {
-    if (lightMode) return;
     poly(c, [P(u0, v1, z0), P(u1, v1, z0), P(u1, v1, z1), P(u0, v1, z1)], m.l, m.e);
     poly(c, [P(u1, v1, z0), P(u1, v0, z0), P(u1, v0, z1), P(u1, v1, z1)], m.r, m.e);
     poly(c, [P(u0, v0, z1), P(u1, v0, z1), P(u1, v1, z1), P(u0, v1, z1)], m.t, m.e);
@@ -45,9 +43,11 @@ const Sprites = (() => {
     if (lightMode) {
       if (hash2(k, seed, 77) < 0.55) {
         litDrawn = true;
+        c.globalCompositeOperation = 'source-over';
         c.beginPath(); c.moveTo(pts[0][0], pts[0][1]);
         for (let i = 1; i < pts.length; i++) c.lineTo(pts[i][0], pts[i][1]);
         c.closePath(); c.fillStyle = 'rgba(255,214,120,1)'; c.fill();
+        c.globalCompositeOperation = 'destination-out';
       }
       return;
     }
@@ -77,7 +77,6 @@ const Sprites = (() => {
 
   // tejado a dos aguas con cumbrera a lo largo de u
   function gableU(c, u0, v0, u1, v1, z, hr, m, wall) {
-    if (lightMode) return;
     const vm = (v0 + v1) / 2;
     // la vertiente trasera queda oculta tras la cumbrera
     poly(c, [P(u0, v1, z), P(u1, v1, z), P(u1, vm, z + hr), P(u0, vm, z + hr)], m.l, m.e);
@@ -85,19 +84,16 @@ const Sprites = (() => {
   }
   // cumbrera a lo largo de v
   function gableV(c, u0, v0, u1, v1, z, hr, m, wall) {
-    if (lightMode) return;
     const um = (u0 + u1) / 2;
     poly(c, [P(u0, v1, z), P(u1, v1, z), P(um, v1, z + hr)], wall.l, wall.e);
     poly(c, [P(u1, v1, z), P(u1, v0, z), P(um, v0, z + hr), P(um, v1, z + hr)], m.r, m.e);
   }
   function pyramid(c, u0, v0, u1, v1, z, hr, m) {
-    if (lightMode) return;
     const a = P((u0 + u1) / 2, (v0 + v1) / 2, z + hr);
     poly(c, [P(u0, v1, z), P(u1, v1, z), a], m.l, m.e);
     poly(c, [P(u1, v1, z), P(u1, v0, z), a], m.r, m.e);
   }
   function cyl(c, u, v, r, z0, z1, m, top) {
-    if (lightMode) return;
     const [cx, cy0] = P(u, v, z0), cy1 = P(u, v, z1)[1];
     const rx = r * TW * 0.7071, ry = r * TH * 0.7071;
     const g = c.createLinearGradient(cx - rx, 0, cx + rx, 0);
@@ -114,14 +110,12 @@ const Sprites = (() => {
     }
   }
   function ell(c, u, v, r, z, fill, stroke) {
-    if (lightMode) return;
     const [cx, cy] = P(u, v, z);
     c.beginPath(); c.ellipse(cx, cy, r * TW * 0.7071, r * TH * 0.7071, 0, 0, Math.PI * 2);
     if (fill) { c.fillStyle = fill; c.fill(); }
     if (stroke) { c.strokeStyle = stroke; c.lineWidth = 0.7; c.stroke(); }
   }
   function dome(c, u, v, r, z, m) {
-    if (lightMode) return;
     const [cx, cy] = P(u, v, z);
     const rx = r * TW * 0.7071, ry = r * TH * 0.7071;
     const g = c.createRadialGradient(cx - rx * 0.35, cy - rx * 0.6, rx * 0.1, cx, cy - rx * 0.2, rx * 1.2);
@@ -131,7 +125,6 @@ const Sprites = (() => {
     c.fillStyle = g; c.fill(); c.strokeStyle = m.e; c.lineWidth = 0.6; c.stroke();
   }
   function coolTower(c, u, v, r, z0, z1, m) {
-    if (lightMode) return;
     const [cx, cy0] = P(u, v, z0);
     const H = z1 - z0, rxB = r * TW * 0.7071, ryB = r * TH * 0.7071;
     const rad = t => 0.74 + 0.26 * Math.pow(1 - t, 2.2) + 0.1 * t * t;
@@ -154,17 +147,14 @@ const Sprites = (() => {
   function lawn(c, w, d, col, inset = 0.05) { flat(c, inset, inset, w - inset, d - inset, 0, col || '#8cc063', 'rgba(0,0,0,0.12)'); }
   function pave(c, u0, v0, u1, v1, col) { flat(c, u0, v0, u1, v1, 0, col || '#cfcabd', 'rgba(0,0,0,0.12)'); }
   function dot(c, u, v, col, r = 1.8) {
-    if (lightMode) return;
     const [x, y] = P(u, v, 0); c.beginPath(); c.arc(x, y, r, 0, 7); c.fillStyle = col; c.fill();
   }
   function line(c, a, b, col, w) {
-    if (lightMode) return;
     c.beginPath(); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.strokeStyle = col; c.lineWidth = w || 1; c.stroke();
   }
 
   /* ---------- árboles ---------- */
   function treeShape(c, x, y, kind, s, tint) {
-    if (lightMode) return;
     c.save(); c.translate(x, y); c.scale(s, s);
     c.fillStyle = 'rgba(0,0,0,0.18)'; c.beginPath(); c.ellipse(2, 1, 9, 4.5, 0, 0, 7); c.fill();
     if (kind === 0) {                       // pino
@@ -638,7 +628,6 @@ const Sprites = (() => {
 
   // --- Sanidad ---
   function cross(c, x, y, s, col) {
-    if (lightMode) return;
     c.fillStyle = col; c.fillRect(x - s, y - s * 0.35, s * 2, s * 0.7); c.fillRect(x - s * 0.35, y - s, s * 0.7, s * 2);
   }
   H.clinic = 66;
@@ -707,7 +696,7 @@ const Sprites = (() => {
   };
 
   // --- Ocio ---
-  function trees(c, list) { if (lightMode) return; for (const [u, v, k, s] of list) { const [x, y] = P(u, v, 0); treeShape(c, x, y, k, s || 0.8); } }
+  function trees(c, list) { for (const [u, v, k, s] of list) { const [x, y] = P(u, v, 0); treeShape(c, x, y, k, s || 0.8); } }
   H.park1 = 54;
   B.park1 = (c) => {
     lawn(c, 1, 1, '#7fc063', 0.03);
@@ -811,6 +800,7 @@ const Sprites = (() => {
     c.translate(left, top);
     lightMode = lit; seed = v; litDrawn = false;
     c.lineCap = 'butt';
+    if (lit) c.globalCompositeOperation = 'destination-out';   // orden del pintor: lo que se dibuja después tapa las ventanas que quedan detrás
     fn(c, w, d, v);
     lightMode = false;
     return { c: cv, ox: left * SPR, oy: top * SPR, lit: litDrawn };
