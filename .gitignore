@@ -1,0 +1,17 @@
+# Secretos de firma: NUNCA subir (sin el keystore no se puede actualizar la APK ya instalada; guárdalo en un lugar seguro)
+android/keystore.properties
+android/*.keystore
+*.keystore
+*.jks
+
+# Local / generado
+android/local.properties
+android/.gradle/
+android/build/
+android/app/build/
+android/build.log
+node_modules/
+
+# Artefactos que genera build.js / gradle (se publican como Release, no en el código)
+IsoCity.apk
+IsoCity-standalone.html
